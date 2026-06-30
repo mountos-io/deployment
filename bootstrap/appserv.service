@@ -1,0 +1,18 @@
+[Unit]
+Description=mountOS appserv (HUB control plane)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Written by cloud-init: VAULT_PROVIDER, VAULT_HASHICORP_ADDRESS,
+# VAULT_HASHICORP_ROLE_ID, VAULT_HASHICORP_SECRET_ID, PORT, ADVERTISE_ADDR.
+EnvironmentFile=/etc/mountos/appserv.env
+ExecStart=/usr/local/bin/appserv
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+# Hub holds no local state (config in Vault, data in RDS); safe to restart/replace.
+
+[Install]
+WantedBy=multi-user.target

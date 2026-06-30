@@ -1,0 +1,70 @@
+#!/bin/bash
+set -euo pipefail
+
+# appserv reads ALL config from Vault at boot via AppRole. Only the bootstrap
+# env below is written locally. ADVERTISE_ADDR is the instance private IPv4 (IMDSv2).
+TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+PRIV_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/local-ipv4)
+
+install -d -m 0755 /etc/mountos
+
+# Self-signed cert so the ALB re-encrypts to appserv (HTTPS-only when TLS_* + HTTPS_PORT set).
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/mountos/appserv-key.pem -out /etc/mountos/appserv-cert.pem -days 3650 -subj "/CN=appserv" -addext "subjectAltName=IP:$PRIV_IP"
+chmod 0600 /etc/mountos/appserv-key.pem
+
+# AppRole secret_id is delivered via SSM SecureString, not baked into user_data.
+# || echo "" tolerates the param being absent on a first apply before the seed runs.
+VAULT_SECRET_ID="$(aws ssm get-parameter --name /mountos/appserv/vault-secret-id --with-decryption --region ${region} --query Parameter.Value --output text 2>/dev/null || echo "")"
+
+# Fetch Vault's self-signed CA from SSM; retry while the node boots + publishes it (~5min).
+for i in $(seq 1 30); do
+  aws ssm get-parameter --name /mountos/hub/vault-ca --region ${region} --query Parameter.Value --output text > /etc/mountos/vault-ca.pem 2>/dev/null && [ -s /etc/mountos/vault-ca.pem ] && break
+  sleep 10
+done
+
+cat >/etc/mountos/appserv.env <<EOF
+VAULT_PROVIDER=hashicorp
+VAULT_HASHICORP_ADDRESS=${vault_addr}
+VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+VAULT_HASHICORP_SECRET_ID=$VAULT_SECRET_ID
+VAULT_CACERT=/etc/mountos/vault-ca.pem
+PORT=8080
+HTTPS_PORT=8443
+TLS_CERT_FILE=/etc/mountos/appserv-cert.pem
+TLS_KEY_FILE=/etc/mountos/appserv-key.pem
+ADVERTISE_ADDR=$PRIV_IP
+EOF
+chmod 0600 /etc/mountos/appserv.env
+
+# Install appserv (built-in free 5 TiB; no license required).
+curl -fsSL https://n.sh -o /tmp/mos-install.sh
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+%{ if mos_version != "" ~}
+bash /tmp/mos-install.sh -s -- --pkg appserv --version ${mos_version}
+%{ else ~}
+bash /tmp/mos-install.sh -s -- --pkg appserv
+%{ endif ~}
+
+# Idempotent, migration-locked; safe across concurrent instances.
+/usr/local/bin/appserv db install
+
+cat >/etc/systemd/system/appserv.service <<'EOF'
+[Unit]
+Description=mountOS appserv
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/mountos/appserv.env
+ExecStart=/usr/local/bin/appserv
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now appserv

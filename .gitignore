@@ -1,0 +1,16 @@
+# Client-supplied / generated — never commit.
+answers.env
+*secrets.local.json
+*.wrapped-token
+
+# Terraform state + vars (client owns these in their own remote backend).
+*.tfvars
+!*.tfvars.sample
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+# Local terraform overrides (e.g. the private Floci test override) — never commit.
+**/override.tf
+**/*_override.tf
+# .terraform.lock.hcl IS committed on purpose — pins provider versions for reproducible applies.

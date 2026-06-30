@@ -1,0 +1,89 @@
+# mountOS deploy — release manifest.
+# ONE version pins the whole bundle (deploy templates + server binary + SDK +
+# helpers) so a client install is internally coherent. The release pipeline
+# builds/publishes every artifact below at this version; the AI deploy skill
+# reads this file to fetch the matching set. The vendor's internal CI rehearses
+# each tagged version before it is published.
+
+version: 0.88.0
+
+artifacts:
+  # Hub server binary, fetched on each instance via https://n.sh.
+  appserv:
+    pkg: appserv
+    # REQUIRED build tags. `hublicense` switches the hub to DB-driven licensing:
+    # no MOS_LICENSE_PATH, built-in free 5 TiB default, license managed via the
+    # admin DB/SDK. A file-gate build (WITHOUT hublicense) FATALLY EXITS at boot
+    # in this deployment model (cloud-init sets no license file). The release
+    # pipeline MUST build appserv with these tags for the deploy bundle.
+    build_tags: [defaultserv, dbserv, strict, appserv, hublicense]
+
+  # Admin SDK module used by the verify smoke (resolved from the Go module proxy).
+  admin_sdk:
+    module: github.com/mountos-io/mountos-admin-sdk/go
+
+  # Operator helpers — shipped prebuilt so clients need NO Go toolchain. The
+  # scripts prefer these on PATH and fall back to `go run` for in-repo dev.
+  # (Longer-term alternative: fold into `appserv keygen` / `appserv verify`.)
+  keygen:
+    pkg: mos-keygen
+    source: bootstrap/keygen
+  verify:
+    pkg: mos-verify
+    source: verify
+
+# Cloud demarcation. AWS only today; each cloud's substrate is self-contained
+# under clouds/<cloud>/terraform and selected via `CLOUD=<cloud> make ...`.
+clouds:
+  aws:
+    terraform: clouds/aws/terraform
+  # gcp:   { terraform: clouds/gcp/terraform }    # planned
+  # azure: { terraform: clouds/azure/terraform }  # planned
+
+# Distribution:
+#   source of truth  : the mountos-io/deployment git repo, tagged v<version>.
+#   published bundle : n.sh / R2 as `--pkg deploy --version <version>` (tarball).
+#   AI deploy skill  : fetches the pinned bundle (tarball or repo tag), drives make.
+
+# Production-hardening register (updated after the production-readiness review).
+# status:
+#   resolved        = applied + terraform-validate clean. RUNTIME-PENDING: not yet
+#                     exercised on a live AWS bring-up — validate proves HCL,
+#                     not boot behavior. Verify on first real deploy.
+#   partial         = mechanism in place; a further step remains.
+#   open-needs-runtime = NOT shipped: unsafe to apply blind (total blast radius) +
+#                     untestable here. Implement during a runtime-validated session.
+#   open-pipeline   = depends on the release pipeline (cannot fabricate here).
+production_hardening:
+  - id: vault-tls
+    severity: critical
+    status: resolved
+    note: "Each Vault node serves self-signed TLS (cert in /opt/vault/tls), publishes its CA to SSM (/mountos/<hub|region>/vault-ca); consumers fetch the CA (retry) + set VAULT_CACERT + https endpoint; seed scripts use --cacert. Single-node topology. RUNTIME-PENDING."
+  - id: secret-id-in-user-data
+    severity: critical
+    status: resolved
+    note: "secret_id moved to SSM SecureString; cloud-init fetches it via the instance role (ssm:GetParameter + kms:Decrypt-via-ssm) instead of baking it into user_data. RUNTIME-PENDING. (Still passes through tfstate — see state-secrets-backend.)"
+  - id: alb-reencrypt
+    severity: high
+    status: resolved
+    note: "appserv serves HTTPS:8443 (self-signed via cloud-init); ALB target group + health check are HTTPS (ALB skips backend cert check). Health matcher broadened to 200-499. RUNTIME-PENDING."
+  - id: state-secrets-backend
+    severity: high
+    status: partial
+    note: "make plan/apply now fail unless backend.tf exists (enforces remote state). Secrets still land in tfstate; full removal needs RDS manage_master_user_password + SSM-direct secret_id (changes the DSN/seed flow). backend.tf.sample documents SSE-KMS + DynamoDB lock + versioning."
+  - id: db-install-error-swallow
+    severity: medium
+    status: resolved
+    note: "Removed `|| true` from db install in all cloud-inits + install.sh; a real migration failure now stops boot (db install stays lock-safe + idempotent)."
+  - id: alb-health-matcher
+    severity: medium
+    status: resolved
+    note: "Matcher broadened from 401 to 200-499 (listener-alive, still fails on 5xx). A dedicated unauthenticated /healthz on appserv would be cleaner (servers-side)."
+  - id: supply-chain-verify
+    severity: high
+    status: open-pipeline
+    note: "Verify MECHANISM wired: cloud-init downloads the n.sh installer to a file and sha256-verifies it when var.mos_installer_sha256 is set (warns otherwise). The actual digests/signatures must be published per-artifact by the release pipeline; cannot be fabricated here."
+  - id: vault-ha
+    severity: high
+    status: open-needs-runtime
+    note: "Single-node Vault (hub + region) is still a SPOF. NOT shipped blind: 3-node raft + TLS requires a SHARED-CA PKI (per-node self-signed certs break raft retry_join peer verification — and conflict with the single-node self-signed TLS now in place), an internal NLB as the stable endpoint (cert SAN must cover the NLB DNS), tag-based retry_join auto-join, and node-cert signing at boot. A wrong blind change = total secret-store outage. Implement + runtime-validate together: shared CA (tls provider or CA-in-SSM) -> 3 nodes across AZs (8201 SG reserved) -> internal NLB -> services point at the NLB -> scheduled `vault operator raft snapshot` to versioned S3."

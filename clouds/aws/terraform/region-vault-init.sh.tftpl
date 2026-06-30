@@ -1,0 +1,56 @@
+#!/bin/bash
+set -euo pipefail
+
+# Single-node region Vault with raft storage and awskms auto-unseal against the
+# REGION CMK. Separate from the hub Vault.
+# HA: scale to 3 raft peers (add nodes, join via raft, add 8201 peers to the SG).
+
+dnf install -y dnf-plugins-core
+dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+dnf install -y vault
+
+install -d -m 0750 -o vault -g vault /opt/vault/data
+
+# Private IPv4 via IMDSv2, used for the cert SAN and the api/cluster addresses.
+TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+PRIV_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+
+# Self-signed cert (its own CA). Consumers fetch this CA from SSM to trust Vault.
+mkdir -p /opt/vault/tls
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /opt/vault/tls/key.pem -out /opt/vault/tls/cert.pem -days 3650 -subj "/CN=vault" -addext "subjectAltName=IP:$PRIV_IP"
+chmod 600 /opt/vault/tls/key.pem
+chown -R vault:vault /opt/vault/tls
+
+cat >/etc/vault.d/vault.hcl <<EOF
+ui = true
+
+storage "raft" {
+  path    = "/opt/vault/data"
+  node_id = "$(hostname)"
+}
+
+listener "tcp" {
+  address       = "0.0.0.0:8200"
+  tls_cert_file = "/opt/vault/tls/cert.pem"
+  tls_key_file  = "/opt/vault/tls/key.pem"
+}
+
+seal "awskms" {
+  region     = "${region}"
+  kms_key_id = "${kms_key_id}"
+}
+
+api_addr     = "https://$PRIV_IP:8200"
+cluster_addr = "https://$PRIV_IP:8201"
+EOF
+
+systemctl enable --now vault
+
+# Publish the self-signed CA to SSM so consumers can trust Vault's TLS.
+aws ssm put-parameter --name /mountos/region/vault-ca --type String --overwrite --region ${region} --value "$(cat /opt/vault/tls/cert.pem)"
+
+# OPERATOR ACTION (run ONCE, manually): `vault operator init`.
+# Store the recovery keys + root token securely (e.g. SSM Parameter Store / Secrets Manager).
+# The region seed script then enables AppRole, writes the dataserv config, and adds
+# the hub appserv verifier to this Vault's service-verifiers.
+# This script intentionally does NOT init Vault or persist any secrets.
