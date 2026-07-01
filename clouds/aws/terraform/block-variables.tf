@@ -1,7 +1,8 @@
 # blockserv (block data-plane) vars. Opt-in; only for local-block backends.
-# Reuses region vars (region_cluster_id, region_vault_*, mos_version, mode) and
-# hub resources (data.aws_ami.al2023_arm64, aws_lb.appserv_srpc,
-# aws_security_group.blockserv, aws_subnet.private).
+# Its Vault keys are seeded unconditionally by region-seed.sh; only running the
+# fleet is gated by block_enable. Reuses region vars (region_cluster_id,
+# region_vault_*, mos_version, mode) and hub resources (data.aws_ami.al2023_arm64,
+# aws_lb.appserv_srpc, aws_security_group.blockserv, aws_subnet.private).
 
 variable "block_enable" {
   type        = bool

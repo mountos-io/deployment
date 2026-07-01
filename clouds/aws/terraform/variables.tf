@@ -15,7 +15,7 @@ variable "hub_domain" {
   type        = string
   description = "Public hub FQDN (e.g. hub.acme.com). REQUIRED — clients reach https://<hub_domain>."
   validation {
-    condition     = length(var.hub_domain) > 0 && !can(regex("example|changeme|replace|your-domain", lower(var.hub_domain)))
+    condition     = length(var.hub_domain) > 0 && !can(regex("(^|\\.)(example|changeme|replace|your-domain)(\\.|$)", lower(var.hub_domain)))
     error_message = "Set hub_domain to your real public FQDN (placeholders like example/changeme/replace are rejected)."
   }
 }
@@ -70,13 +70,6 @@ variable "db_username" {
   type        = string
   description = "RDS master username (provision-rds mode)."
   default     = "mountos"
-}
-
-variable "db_password" {
-  type        = string
-  description = "RDS master password (provision-rds mode)."
-  sensitive   = true
-  default     = ""
 }
 
 variable "vault_hosting" {
@@ -148,5 +141,7 @@ locals {
   provision_rds  = var.admin_db_mode == "provision-rds"
   self_vault     = var.vault_hosting == "self-hosted"
   vault_endpoint = local.self_vault ? "https://${aws_instance.vault[0].private_ip}:8200" : var.vault_addr
-  admin_dsn      = local.provision_rds ? "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.admin[0].endpoint}/mountos_admin?sslmode=require" : var.admin_db_url
+  # provision-rds: AWS manages the master password (Secrets Manager), so no DSN
+  # is constructible here — seed-vault.sh builds it from admin_db_host +
+  # admin_db_secret_arn. byo: the operator's DSN passes straight through.
 }

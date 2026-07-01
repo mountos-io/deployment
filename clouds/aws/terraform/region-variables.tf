@@ -65,13 +65,6 @@ variable "region_db_username" {
   default     = "mountos"
 }
 
-variable "region_db_password" {
-  type        = string
-  description = "Region RDS master password (provision-rds mode)."
-  sensitive   = true
-  default     = ""
-}
-
 variable "region_db_instance_class" {
   type        = string
   description = "Region RDS instance class (provision-rds mode)."
@@ -129,5 +122,7 @@ locals {
   region_provision_rds  = var.region_db_mode == "provision-rds"
   region_self_vault     = var.region_vault_hosting == "self-hosted"
   region_vault_endpoint = local.region_self_vault ? "https://${aws_instance.region_vault[0].private_ip}:8200" : var.region_vault_addr
-  region_dsn            = local.region_provision_rds ? "postgresql://${var.region_db_username}:${var.region_db_password}@${aws_db_instance.region[0].endpoint}/mountos_data?sslmode=require" : var.region_db_url
+  # provision-rds: AWS manages the master password (Secrets Manager), so no DSN
+  # is constructible here — region-seed.sh builds it from region_db_host +
+  # region_db_secret_arn. byo: the operator's DSN passes straight through.
 }

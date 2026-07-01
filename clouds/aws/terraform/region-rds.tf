@@ -41,7 +41,6 @@ resource "aws_db_instance" "region" {
   allocated_storage          = var.region_db_allocated_gb
   db_name                    = "mountos_data"
   username                   = var.region_db_username
-  password                   = var.region_db_password
   db_subnet_group_name       = aws_db_subnet_group.region[0].name
   vpc_security_group_ids     = [aws_security_group.region_rds[0].id]
   storage_encrypted          = true
@@ -55,11 +54,14 @@ resource "aws_db_instance" "region" {
   multi_az                   = var.mode == "production"
   tags                       = { Name = "mountos-region" }
 
+  # AWS generates and rotates the master password in Secrets Manager; it is
+  # never a Terraform value, so it never lands in tfstate or user_data. The
+  # secret ARN is read at seed time (see bootstrap/region-seed.sh) by the
+  # operator, not by instances — dataserv gets its DSN from Vault, never from
+  # Secrets Manager directly.
+  manage_master_user_password = true
+
   lifecycle {
     prevent_destroy = true
-    precondition {
-      condition     = var.region_db_password != ""
-      error_message = "region_db_password must be set (provision-rds mode)."
-    }
   }
 }

@@ -58,11 +58,11 @@ production_hardening:
   - id: vault-tls
     severity: critical
     status: resolved
-    note: "Each Vault node serves self-signed TLS (cert in /opt/vault/tls), publishes its CA to SSM (/mountos/<hub|region>/vault-ca); consumers fetch the CA (retry) + set VAULT_CACERT + https endpoint; seed scripts use --cacert. Single-node topology. RUNTIME-PENDING."
+    note: "Each Vault node serves self-signed TLS (cert in /opt/vault/tls), publishes its CA to SSM (/mountos/<hub|region>/vault-ca); consumers fetch the CA + set VAULT_CACERT + https endpoint; seed scripts use --cacert. CA fetch runs in the service unit's ExecStartPre (mos-fetch-vault-config.sh) and exits non-zero until a valid CA is present, so systemd self-heals the node when Vault is initialized AFTER the consumer boots (no one-shot cloud-init dependency). Single-node topology. RUNTIME-PENDING."
   - id: secret-id-in-user-data
     severity: critical
     status: resolved
-    note: "secret_id moved to SSM SecureString; cloud-init fetches it via the instance role (ssm:GetParameter + kms:Decrypt-via-ssm) instead of baking it into user_data. RUNTIME-PENDING. (Still passes through tfstate — see state-secrets-backend.)"
+    note: "secret_id moved to SSM SecureString; fetched via the instance role (ssm:GetParameter + kms:Decrypt-via-ssm) in the unit's ExecStartPre (not baked into user_data). ExecStartPre writes it to a 0600 secret.env (optional EnvironmentFile) and exits non-zero until the param exists, so a secret_id published after boot self-heals on the next systemd restart. RUNTIME-PENDING. (Still passes through tfstate — see state-secrets-backend.)"
   - id: alb-reencrypt
     severity: high
     status: resolved
@@ -70,11 +70,11 @@ production_hardening:
   - id: state-secrets-backend
     severity: high
     status: partial
-    note: "make plan/apply now fail unless backend.tf exists (enforces remote state). Secrets still land in tfstate; full removal needs RDS manage_master_user_password + SSM-direct secret_id (changes the DSN/seed flow). backend.tf.sample documents SSE-KMS + DynamoDB lock + versioning."
+    note: "make plan/apply now fail unless backend.tf exists (enforces remote state). RDS master passwords (admin + region) are now AWS-managed via manage_master_user_password — never a Terraform value, so they no longer land in tfstate; seed-vault.sh/region-seed.sh fetch them from Secrets Manager at seed time and build the DSN themselves. Remaining tfstate exposure: the Vault AppRole secret_id values (vault_secret_id/region_vault_secret_id) still pass through as Terraform variables into aws_ssm_parameter.*.value, so they land in tfstate even though instances read them via SSM, not user_data. Full removal needs those secret_ids delivered without ever being a Terraform value (e.g. response-wrapped and pushed to SSM out-of-band by the seed step, not via a TF var) — that changes the region/appserv AppRole hookup flow. backend.tf.sample documents SSE-KMS + DynamoDB lock + versioning."
   - id: db-install-error-swallow
     severity: medium
     status: resolved
-    note: "Removed `|| true` from db install in all cloud-inits + install.sh; a real migration failure now stops boot (db install stays lock-safe + idempotent)."
+    note: "db install in the cloud-inits is wrapped in a bounded retry (was a bare `|| true`); a real failure stops boot after retries, so migration errors are not masked (db install stays lock-safe + idempotent for concurrent instances)."
   - id: alb-health-matcher
     severity: medium
     status: resolved

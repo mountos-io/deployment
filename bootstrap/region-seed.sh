@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Region bootstrap (run ONCE, operator-side): generate fresh dataserv/gcserv keys,
-# seed the REGION Vault, and FAN OUT service-verifiers between the hub and region
+# Region bootstrap (run ONCE, operator-side): generate fresh dataserv/gcserv keys
+# plus blockserv/hdfsserv/s3gatewayserv keys (region-scoped service keypairs are
+# UNCONDITIONAL — generated and fanned out regardless of whether block_enable /
+# hdfs_enable / s3gateway_enable actually runs the service in this region), seed
+# the REGION Vault, and FAN OUT service-verifiers between the hub and region
 # Vaults so SRPC registration verifies both ways (the hub trusts the new region
 # services; the region trusts the hub's appserv). Idempotent and NON-DESTRUCTIVE.
 #
 # Required env:
 #   REGION_VAULT_ADDR + REGION_VAULT_TOKEN  region Vault (terraform output region_vault_addr + its operator-init token)
 #   HUB_VAULT_ADDR    + HUB_VAULT_TOKEN      hub Vault (read appserv verifier + api-master, add region verifiers)
-#   REGION_DB_URL                            mountos_data DSN (terraform output region_db_url)
+#   REGION_DB_URL                            mountos_data DSN (byo mode), or REGION_DB_HOST + REGION_DB_SECRET_ARN
+#                                             (terraform output, provision-rds mode — AWS manages the master
+#                                             password in Secrets Manager; this script fetches it and builds the DSN;
+#                                             requires aws CLI credentials with secretsmanager:GetSecretValue on that ARN)
 # Vault now serves TLS. Set VAULT_CACERT to the CA PEM before running (fetch via:
 #   aws ssm get-parameter --name /mountos/<hub|region>/vault-ca --query Parameter.Value --output text > vault-ca.pem).
 # This seed talks to BOTH region and hub Vault — VAULT_CACERT may be a concatenation of both CAs.
@@ -22,7 +28,16 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${REGION_VAULT_TOKEN:?export REGION_VAULT_TOKEN (region Vault admin/bootstrap token)}"
 : "${HUB_VAULT_ADDR:?set HUB_VAULT_ADDR (the hub Vault address)}"
 : "${HUB_VAULT_TOKEN:?export HUB_VAULT_TOKEN (hub Vault token)}"
-: "${REGION_DB_URL:?set REGION_DB_URL (terraform output region_db_url)}"
+
+if [[ -z "${REGION_DB_URL:-}" ]]; then
+  : "${REGION_DB_HOST:?set REGION_DB_URL (byo) or REGION_DB_HOST + REGION_DB_SECRET_ARN (terraform output, provision-rds)}"
+  : "${REGION_DB_SECRET_ARN:?set REGION_DB_SECRET_ARN (terraform output region_db_secret_arn)}"
+  echo "==> fetching the AWS-managed region DB master password from Secrets Manager"
+  region_db_pw="$(aws secretsmanager get-secret-value --secret-id "$REGION_DB_SECRET_ARN" --query SecretString --output text | jq -r .password)"
+  region_db_user="$(jq -rn --arg u "${REGION_DB_USERNAME:-mountos}" '$u|@uri')"
+  region_db_pw_enc="$(jq -rn --arg p "$region_db_pw" '$p|@uri')"
+  REGION_DB_URL="postgresql://${region_db_user}:${region_db_pw_enc}@${REGION_DB_HOST}/mountos_data?sslmode=require"
+fi
 
 secrets="$here/region-secrets.local.json"
 if [[ ! -f "$secrets" ]]; then
@@ -53,23 +68,39 @@ for svc in dataserv gcserv; do
             ED25519_SIGNING_KEY:$sk,ED25519_VERIFICATION_KEY:$vk}}' \
     | rv -X POST "$REGION_VAULT_ADDR/v1/mountos/data/$svc" -d @- >/dev/null
 done
+
+echo "==> region Vault: blockserv + hdfsserv + s3gatewayserv keys (no DB; UNCONDITIONAL — keyed"
+echo "    regardless of block_enable/hdfs_enable/s3gateway_enable, only running the service is opt-in)"
+for svc in blockserv hdfsserv s3gatewayserv; do
+  jq -n --arg sk "$(sec ${svc}_signing)" --arg vk "$(sec ${svc}_verification)" \
+    '{data:{ED25519_SIGNING_KEY:$sk, ED25519_VERIFICATION_KEY:$vk}}' \
+    | rv -X POST "$REGION_VAULT_ADDR/v1/mountos/data/$svc" -d @- >/dev/null
+done
+
 jq -n --arg am "$api_master" '{data:{API_MASTER:$am}}' \
   | rv -X POST "$REGION_VAULT_ADDR/v1/mountos/data/api-master" -d @- >/dev/null
 
-echo "==> region Vault: service-verifiers (appserv from hub + dataserv + gcserv)"
-jq -n --arg av "$appserv_vk" --arg dv "$(sec dataserv_verification)" --arg gv "$(sec gcserv_verification)" \
-  '{data:{appserv:$av, dataserv:$dv, gcserv:$gv}}' \
+echo "==> region Vault: service-verifiers (appserv from hub + dataserv/gcserv/blockserv/hdfsserv/s3gatewayserv; MERGE)"
+cur_rv="$(rv "$REGION_VAULT_ADDR/v1/mountos/data/service-verifiers" | jq -c '.data.data // {}')"
+jq -n --argjson cur "$cur_rv" --arg av "$appserv_vk" \
+  --arg dv "$(sec dataserv_verification)" --arg gv "$(sec gcserv_verification)" \
+  --arg bv "$(sec blockserv_verification)" --arg hv "$(sec hdfsserv_verification)" --arg sv "$(sec s3gatewayserv_verification)" \
+  '{data: ($cur + {appserv:$av, dataserv:$dv, gcserv:$gv, blockserv:$bv, hdfsserv:$hv, s3gatewayserv:$sv})}' \
   | rv -X POST "$REGION_VAULT_ADDR/v1/mountos/data/service-verifiers" -d @- >/dev/null
 
 echo "==> hub Vault: add region verifiers (fan-out; MERGE so appserv stays)"
 hub_v="$(hv "$HUB_VAULT_ADDR/v1/mountos/data/service-verifiers" | jq -c '.data.data // {}')"
-jq -n --argjson cur "$hub_v" --arg dv "$(sec dataserv_verification)" --arg gv "$(sec gcserv_verification)" \
-  '{data: ($cur + {dataserv:$dv, gcserv:$gv})}' \
+jq -n --argjson cur "$hub_v" \
+  --arg dv "$(sec dataserv_verification)" --arg gv "$(sec gcserv_verification)" \
+  --arg bv "$(sec blockserv_verification)" --arg hv "$(sec hdfsserv_verification)" --arg sv "$(sec s3gatewayserv_verification)" \
+  '{data: ($cur + {dataserv:$dv, gcserv:$gv, blockserv:$bv, hdfsserv:$hv, s3gatewayserv:$sv})}' \
   | hv -X POST "$HUB_VAULT_ADDR/v1/mountos/data/service-verifiers" -d @- >/dev/null
 
-echo "==> region AppRole (one role for the co-located dataserv+gcserv node)"
+echo "==> region AppRole (shared by dataserv/gcserv and, when enabled, blockserv/hdfsserv/s3gatewayserv)"
 rv -X POST "$REGION_VAULT_ADDR/v1/auth/approle/role/region" -d '{"token_policies":"region","token_ttl":"1h"}' >/dev/null
 role_id="$(rv "$REGION_VAULT_ADDR/v1/auth/approle/role/region/role-id" | jq -r .data.role_id)"
 echo "region_vault_role_id=$role_id"
 echo "  -> set region_vault_role_id (+ a wrapped secret_id) in tfvars, then re-run 'make apply'."
 echo "     After dataserv registers over SRPC, the region's uno cluster flips ready."
+echo "     blockserv/hdfsserv/s3gatewayserv keys are already seeded above; set block_enable/"
+echo "     hdfs_enable/s3gateway_enable=true in tfvars only for the ones you want RUNNING."

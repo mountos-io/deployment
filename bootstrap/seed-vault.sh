@@ -5,7 +5,11 @@
 # re-issues a secret_id. Instances never run this; they only READ Vault.
 #
 # Requires: VAULT_ADDR + VAULT_TOKEN (a short-lived admin/bootstrap token) in env.
-# ADMIN_DB_URL comes from `terraform output` (provision-rds) or your BYO DSN.
+# ADMIN_DB_URL: either set it directly (byo mode), or — in provision-rds mode,
+# where AWS manages the master password in Secrets Manager and it is never a
+# Terraform value — set ADMIN_DB_HOST + ADMIN_DB_SECRET_ARN (both from
+# `terraform output`) and this script fetches the password + builds the DSN.
+# Requires `aws` CLI credentials with secretsmanager:GetSecretValue on that ARN.
 # Vault now serves TLS. Set VAULT_CACERT to the CA PEM before running (fetch via:
 #   aws ssm get-parameter --name /mountos/hub/vault-ca --query Parameter.Value --output text > vault-ca.pem).
 set -euo pipefail
@@ -17,7 +21,16 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 : "${VAULT_ADDR:?set VAULT_ADDR (terraform output vault_addr, or your managed Vault/SM address)}"
 : "${VAULT_TOKEN:?export VAULT_TOKEN (a short-lived admin/bootstrap token)}"
-: "${ADMIN_DB_URL:?set ADMIN_DB_URL in answers.env (terraform output admin_db_url, or your BYO DSN)}"
+
+if [[ -z "${ADMIN_DB_URL:-}" ]]; then
+  : "${ADMIN_DB_HOST:?set ADMIN_DB_URL (byo) or ADMIN_DB_HOST + ADMIN_DB_SECRET_ARN (terraform output, provision-rds)}"
+  : "${ADMIN_DB_SECRET_ARN:?set ADMIN_DB_SECRET_ARN (terraform output admin_db_secret_arn)}"
+  echo "==> fetching the AWS-managed admin DB master password from Secrets Manager"
+  admin_db_pw="$(aws secretsmanager get-secret-value --secret-id "$ADMIN_DB_SECRET_ARN" --query SecretString --output text | jq -r .password)"
+  admin_db_user="$(jq -rn --arg u "${ADMIN_DB_USERNAME:-mountos}" '$u|@uri')"
+  admin_db_pw_enc="$(jq -rn --arg p "$admin_db_pw" '$p|@uri')"
+  ADMIN_DB_URL="postgresql://${admin_db_user}:${admin_db_pw_enc}@${ADMIN_DB_HOST}/mountos_admin?sslmode=require"
+fi
 
 secrets="$here/secrets.local.json"
 if [[ ! -f "$secrets" ]]; then

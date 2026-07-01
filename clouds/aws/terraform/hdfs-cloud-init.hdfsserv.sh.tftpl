@@ -1,25 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# blockserv reads service config from the region Vault (mountos/blockserv) at boot
-# via the SAME region AppRole as dataserv. Only the bootstrap env below is local.
-
-# Throughput-oriented cache volume at /mnt/blockcache. Wait for /dev/sdf to attach,
-# format XFS only if not already a filesystem, mount with the blockserv I/O options.
-CACHE_DEV=/dev/sdf
-CACHE_DIR=/mnt/blockcache
-for _ in $(seq 1 60); do
-  [ -b "$CACHE_DEV" ] && break
-  sleep 2
-done
-install -d -m 0750 "$CACHE_DIR"
-if ! blkid "$CACHE_DEV" >/dev/null 2>&1; then
-  mkfs.xfs "$CACHE_DEV"
-fi
-CACHE_UUID=$(blkid -s UUID -o value "$CACHE_DEV")
-grep -q "$CACHE_UUID" /etc/fstab || \
-  echo "UUID=$CACHE_UUID $CACHE_DIR xfs rw,async,noatime,nodev,noexec,nosuid,nofail 0 2" >>/etc/fstab
-mount -a
+# hdfsserv is a stateless, cluster-wide WebHDFS gateway. It reads its config
+# from the region Vault at boot via the region AppRole (same as dataserv).
+# No local storage, no DB.
 
 # ADVERTISE_ADDR is the instance private IPv4 (IMDSv2).
 TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" \
@@ -52,46 +36,43 @@ printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
 EOF
 chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
 
-cat >/etc/mountos/blockserv.env <<EOF
+cat >/etc/mountos/hdfsserv.env <<EOF
 VAULT_PROVIDER=hashicorp
 VAULT_HASHICORP_ADDRESS=${vault_addr}
 VAULT_HASHICORP_ROLE_ID=${vault_role_id}
 VAULT_CACERT=/etc/mountos/vault-ca.pem
 REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
-BLOCK_VOLUME_ID=${block_volume_id}
-BLOCK_PORT=9100
+APP_PORT=9870
 PORT_RANGE=9500-9600
-STORAGE_MOUNT_PATH=$CACHE_DIR
-DELETE_MODE=${delete_mode}
 ADVERTISE_ADDR=$PRIV_IP
 EOF
-chmod 0600 /etc/mountos/blockserv.env
+chmod 0600 /etc/mountos/hdfsserv.env
 
-# Install blockserv. No db (data-plane node). No license file (hublicense model).
+# Install hdfsserv. No DB, no license file (hublicense model).
 curl -fsSL https://n.sh -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if mos_version != "" ~}
-bash /tmp/mos-install.sh --pkg blockserv --version ${mos_version}
+bash /tmp/mos-install.sh --pkg hdfsserv --version ${mos_version}
 %{ else ~}
-bash /tmp/mos-install.sh --pkg blockserv
+bash /tmp/mos-install.sh --pkg hdfsserv
 %{ endif ~}
 
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
-install -m 0600 /dev/null /etc/mountos/blockserv.secret.env
+install -m 0600 /dev/null /etc/mountos/hdfsserv.secret.env
 
-cat >/etc/systemd/system/blockserv.service <<EOF
+cat >/etc/systemd/system/hdfsserv.service <<EOF
 [Unit]
-Description=mountOS blockserv
+Description=mountOS hdfsserv
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
-EnvironmentFile=/etc/mountos/blockserv.env
-EnvironmentFile=-/etc/mountos/blockserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh /mountos/region/vault-ca /mountos/region/vault-secret-id ${region} /etc/mountos/blockserv.secret.env
-ExecStart=/usr/local/bin/blockserv
+EnvironmentFile=/etc/mountos/hdfsserv.env
+EnvironmentFile=-/etc/mountos/hdfsserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh /mountos/region/vault-ca /mountos/region/vault-secret-id ${region} /etc/mountos/hdfsserv.secret.env
+ExecStart=/usr/local/bin/hdfsserv
 Restart=always
 RestartSec=10
 
@@ -100,4 +81,4 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now blockserv
+systemctl enable --now hdfsserv

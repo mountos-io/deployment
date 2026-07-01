@@ -7,6 +7,7 @@ TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
 PRIV_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" \
   http://169.254.169.254/latest/meta-data/local-ipv4)
+[ -n "$PRIV_IP" ] || { echo "IMDS returned empty private IP" >&2; exit 1; }
 
 install -d -m 0755 /etc/mountos
 
@@ -14,21 +15,32 @@ install -d -m 0755 /etc/mountos
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/mountos/appserv-key.pem -out /etc/mountos/appserv-cert.pem -days 3650 -subj "/CN=appserv" -addext "subjectAltName=IP:$PRIV_IP"
 chmod 0600 /etc/mountos/appserv-key.pem
 
-# AppRole secret_id is delivered via SSM SecureString, not baked into user_data.
-# || echo "" tolerates the param being absent on a first apply before the seed runs.
-VAULT_SECRET_ID="$(aws ssm get-parameter --name /mountos/appserv/vault-secret-id --with-decryption --region ${region} --query Parameter.Value --output text 2>/dev/null || echo "")"
-
-# Fetch Vault's self-signed CA from SSM; retry while the node boots + publishes it (~5min).
-for i in $(seq 1 30); do
-  aws ssm get-parameter --name /mountos/hub/vault-ca --region ${region} --query Parameter.Value --output text > /etc/mountos/vault-ca.pem 2>/dev/null && [ -s /etc/mountos/vault-ca.pem ] && break
-  sleep 10
-done
+# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when Vault publishes it after boot. See the helper below.
+cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
+#!/bin/bash
+# ExecStartPre: (re)fetch the Vault CA + AppRole secret_id from SSM so the node
+# self-heals when Vault publishes them after boot. Non-zero exit -> systemd retries.
+set -euo pipefail
+CA_PARAM="$1"; SECRET_PARAM="$2"; SSM_REGION="$3"; SECRET_ENV="$4"
+CA_FILE=/etc/mountos/vault-ca.pem
+aws ssm get-parameter --name "$CA_PARAM" --region "$SSM_REGION" --query Parameter.Value --output text > "$CA_FILE" 2>/dev/null || true
+if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+  echo "waiting for Vault CA $CA_PARAM" >&2; exit 1
+fi
+SID="$(aws ssm get-parameter --name "$SECRET_PARAM" --with-decryption --region "$SSM_REGION" --query Parameter.Value --output text 2>/dev/null || true)"
+if [ -z "$SID" ] || [ "$SID" = "None" ]; then
+  echo "waiting for AppRole secret_id $SECRET_PARAM" >&2; exit 1
+fi
+umask 077
+printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
+EOF
+chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
 
 cat >/etc/mountos/appserv.env <<EOF
 VAULT_PROVIDER=hashicorp
 VAULT_HASHICORP_ADDRESS=${vault_addr}
 VAULT_HASHICORP_ROLE_ID=${vault_role_id}
-VAULT_HASHICORP_SECRET_ID=$VAULT_SECRET_ID
 VAULT_CACERT=/etc/mountos/vault-ca.pem
 PORT=8080
 HTTPS_PORT=8443
@@ -42,25 +54,29 @@ chmod 0600 /etc/mountos/appserv.env
 curl -fsSL https://n.sh -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if mos_version != "" ~}
-bash /tmp/mos-install.sh -s -- --pkg appserv --version ${mos_version}
+bash /tmp/mos-install.sh --pkg appserv --version ${mos_version}
 %{ else ~}
-bash /tmp/mos-install.sh -s -- --pkg appserv
+bash /tmp/mos-install.sh --pkg appserv
 %{ endif ~}
 
-# Idempotent, migration-locked; safe across concurrent instances.
-/usr/local/bin/appserv db install
+# Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
+install -m 0600 /dev/null /etc/mountos/appserv.secret.env
 
-cat >/etc/systemd/system/appserv.service <<'EOF'
+cat >/etc/systemd/system/appserv.service <<EOF
 [Unit]
 Description=mountOS appserv
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/mountos/appserv.env
+EnvironmentFile=-/etc/mountos/appserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh /mountos/hub/vault-ca /mountos/appserv/vault-secret-id ${region} /etc/mountos/appserv.secret.env
+ExecStartPre=/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
 Restart=always
-RestartSec=5
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

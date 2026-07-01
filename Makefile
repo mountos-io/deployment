@@ -9,7 +9,7 @@ HERE  := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 CLOUD ?= aws
 TF    := $(HERE)clouds/$(CLOUD)/terraform
 
-.PHONY: help interview plan apply bootstrap verify upgrade region-bootstrap block-bootstrap
+.PHONY: help interview plan apply bootstrap verify upgrade region-bootstrap
 
 help:
 	@echo "mountOS init-hub (production):"
@@ -19,8 +19,7 @@ help:
 	@echo "  bootstrap  generate fresh keys -> seed Vault -> create AppRole (run ONCE, operator-side)"
 	@echo "  verify     read-only health gates against the running hub"
 	@echo "  upgrade    set MOS_VERSION in answers.env, then 'make apply' to roll the ASG (no data touched)"
-	@echo "  region-bootstrap  seed region Vault + fan out hub<->region verifiers (after a region is provisioned on the hub)"
-	@echo "  block-bootstrap   seed blockserv keys + fan out its verifier (only when block_enable=true)"
+	@echo "  region-bootstrap  seed region Vault (dataserv/gcserv/blockserv/hdfsserv/s3gatewayserv keys, unconditional) + fan out hub<->region verifiers"
 	@echo ""
 	@echo "  CLOUD=$(CLOUD) (default aws). Substrate: clouds/$(CLOUD)/terraform"
 	@echo "  NO destroy target by design."
@@ -42,9 +41,6 @@ bootstrap:
 
 region-bootstrap:
 	@bash "$(HERE)bootstrap/region-seed.sh"
-
-block-bootstrap:
-	@bash "$(HERE)bootstrap/block-seed.sh"
 
 verify:
 	@bash "$(HERE)verify.sh"

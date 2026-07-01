@@ -27,7 +27,8 @@ admin_db_url              = "" # set only when admin_db_mode = byo
 db_instance_class = "db.m7g.large"
 db_allocated_gb   = 100
 db_username       = "mountos"
-db_password       = "" # REQUIRED — supply via TF_VAR_db_password / secret store (apply fails if empty)
+# No db_password var: provision-rds mode has AWS generate + rotate the master
+# password in Secrets Manager (never a Terraform value, never in tfstate).
 
 # Vault. self-hosted provisions an EC2 raft node with awskms auto-unseal.
 # managed-byo uses vault_addr instead.
@@ -70,7 +71,8 @@ region_db_url            = "" # set only when region_db_mode = byo
 region_db_instance_class = "db.m7g.large"
 region_db_allocated_gb   = 100
 region_db_username       = "mountos"
-region_db_password       = "" # REQUIRED — supply via TF_VAR_region_db_password / secret store (apply fails if empty)
+# No region_db_password var: provision-rds mode has AWS generate + rotate the
+# master password in Secrets Manager (never a Terraform value, never in tfstate).
 
 # Region Vault (separate from the hub Vault). self-hosted provisions an EC2 raft
 # node with awskms auto-unseal against the region CMK. managed-byo uses region_vault_addr.
@@ -84,8 +86,10 @@ region_vault_secret_id = ""
 
 # ---------- blockserv (block data-plane) ----------
 
-# Opt-in; only needed for local-block backends. Reuses the region Vault AppRole
-# above (blockserv reads mountos/blockserv under the same mountos/data/* policy).
+# Opt-in; only needed for local-block backends. Its Vault keys are already seeded
+# by `make region-bootstrap` (unconditional); this only toggles running the fleet.
+# Reuses the region Vault AppRole above (blockserv reads mountos/blockserv under
+# the same mountos/data/* policy).
 block_enable = false
 
 # Active-active members of one block storage (up to 3, distinct AZs). Each
@@ -100,3 +104,13 @@ block_members = [
 # Network-enhanced arm64 family and throughput-oriented cache EBS per member.
 block_instance_type = "m7gn.2xlarge"
 block_cache_gb      = 500
+
+# ---------- hdfsserv / s3gatewayserv (protocol gateways) ----------
+
+# Opt-in and independent of each other. Both are stateless, cluster-wide
+# gateways (not tied to a storage type); their Vault keys are already seeded by
+# `make region-bootstrap` (unconditional). Reuses the region Vault AppRole above.
+hdfs_enable       = false
+hdfs_count        = 2
+s3gateway_enable  = false
+s3gateway_count   = 2

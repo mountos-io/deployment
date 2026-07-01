@@ -13,6 +13,7 @@ install -d -m 0750 -o vault -g vault /opt/vault/data
 # Private IPv4 via IMDSv2, used for the cert SAN and the api/cluster addresses.
 TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
 PRIV_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+[ -n "$PRIV_IP" ] || { echo "IMDS returned empty private IP" >&2; exit 1; }
 
 # Self-signed cert (its own CA). Consumers fetch this CA from SSM to trust Vault.
 mkdir -p /opt/vault/tls
