@@ -1,5 +1,10 @@
 # blockserv data-plane members. Each member is a distinct aws_instance with its
-# own BLOCK_VOLUME_ID and its own cache EBS, spread across private subnets/AZs.
+# own BLOCK_VOLUME_ID and its own cache EBS, spread across public subnets/AZs
+# (blockserv advertises a public IPv4 — clients reach it directly by IP, no
+# proxy). Each member gets a stable Elastic IP (not an ephemeral auto-assigned
+# one): unlike the ASG-based fleets, blockserv members are individually
+# addressed by a persistent BLOCK_VOLUME_ID and aren't expected to churn via
+# rolling replacement, so a stable address avoids unnecessary re-discovery.
 # Registers with the hub over SRPC at the hub NLB :9443; reaches the region Vault
 # over the network (no KMS). Peers on 9101 across distinct clusters.
 
@@ -54,7 +59,7 @@ resource "aws_iam_role_policy" "blockserv_secret_id" {
 # of the instance (delete_on_termination is moot for a detached volume).
 resource "aws_ebs_volume" "blockserv_cache" {
   for_each          = local.block_members_map
-  availability_zone = local.region_subnets[each.value.az_index % length(local.region_subnets)].availability_zone
+  availability_zone = local.region_public_subnets[each.value.az_index % length(local.region_public_subnets)].availability_zone
   size              = var.block_cache_gb
   type              = var.block_cache_type
   iops              = var.block_cache_iops
@@ -70,11 +75,25 @@ resource "aws_volume_attachment" "blockserv_cache" {
   instance_id = aws_instance.blockserv[each.key].id
 }
 
+# Stable public IP per member (see file header for why this is an EIP, not an
+# auto-assigned ephemeral one).
+resource "aws_eip" "blockserv" {
+  for_each = local.block_members_map
+  domain   = "vpc"
+  tags     = { Name = "mountos-blockserv-${each.key}" }
+}
+
+resource "aws_eip_association" "blockserv" {
+  for_each      = local.block_members_map
+  instance_id   = aws_instance.blockserv[each.key].id
+  allocation_id = aws_eip.blockserv[each.key].id
+}
+
 resource "aws_instance" "blockserv" {
   for_each               = local.block_members_map
   ami                    = local.ami
   instance_type          = var.block_instance_type
-  subnet_id              = local.region_subnets[each.value.az_index % length(local.region_subnets)].id
+  subnet_id              = local.region_public_subnets[each.value.az_index % length(local.region_public_subnets)].id
   iam_instance_profile   = aws_iam_instance_profile.blockserv[0].name
   vpc_security_group_ids = [aws_security_group.blockserv.id]
 
@@ -96,6 +115,7 @@ resource "aws_instance" "blockserv" {
     region               = var.region
     region_cluster_id    = var.region_cluster_id
     srpc_addr            = "${aws_lb.appserv_srpc.dns_name}:9443"
+    advertise_addr       = aws_eip.blockserv[each.key].public_ip
     block_volume_id      = each.value.block_volume_id
     delete_mode          = var.block_delete_mode
     mos_version          = var.mos_version

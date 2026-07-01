@@ -10,7 +10,7 @@ version: 0.88.0
 artifacts:
   # Hub server binary, fetched on each instance via https://n.sh.
   appserv:
-    pkg: appserv
+    pkg: mountos-appserv
     # REQUIRED build tags. `hublicense` switches the hub to DB-driven licensing:
     # no MOS_LICENSE_PATH, built-in free 5 TiB default, license managed via the
     # admin DB/SDK. A file-gate build (WITHOUT hublicense) FATALLY EXITS at boot

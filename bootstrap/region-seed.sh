@@ -9,7 +9,7 @@
 #
 # Required env:
 #   REGION_VAULT_ADDR + REGION_VAULT_TOKEN  region Vault (terraform output region_vault_addr + its operator-init token)
-#   HUB_VAULT_ADDR    + HUB_VAULT_TOKEN      hub Vault (read appserv verifier + api-master, add region verifiers)
+#   HUB_VAULT_ADDR    + HUB_VAULT_TOKEN      hub Vault (read appserv verifier, add region verifiers)
 #   REGION_DB_URL                            mountos_data DSN (byo mode), or REGION_DB_HOST + REGION_DB_SECRET_ARN
 #                                             (terraform output, provision-rds mode — AWS manages the master
 #                                             password in Secrets Manager; this script fetches it and builds the DSN;
@@ -49,9 +49,8 @@ sec() { jq -r ".$1" "$secrets"; }
 rv() { curl -s ${VAULT_CACERT:+--cacert "$VAULT_CACERT"} -H "X-Vault-Token: $REGION_VAULT_TOKEN" "$@"; }
 hv() { curl -s ${VAULT_CACERT:+--cacert "$VAULT_CACERT"} -H "X-Vault-Token: $HUB_VAULT_TOKEN" "$@"; }
 
-# Shared values pulled from the hub Vault.
+# Shared value pulled from the hub Vault.
 appserv_vk="$(hv "$HUB_VAULT_ADDR/v1/mountos/data/service-verifiers" | jq -r '.data.data.appserv // empty')"
-api_master="$(hv "$HUB_VAULT_ADDR/v1/mountos/data/api-master" | jq -r '.data.data.API_MASTER // empty')"
 [[ -n "$appserv_vk" ]] || { echo "hub service-verifiers has no appserv key — run 'make bootstrap' on the hub first"; exit 1; }
 
 echo "==> region Vault: enable KVv2 + AppRole (idempotent)"
@@ -77,8 +76,16 @@ for svc in blockserv hdfsserv s3gatewayserv; do
     | rv -X POST "$REGION_VAULT_ADDR/v1/mountos/data/$svc" -d @- >/dev/null
 done
 
-jq -n --arg am "$api_master" '{data:{API_MASTER:$am}}' \
-  | rv -X POST "$REGION_VAULT_ADDR/v1/mountos/data/api-master" -d @- >/dev/null
+echo "==> region Vault: api-master (region-independent — generated fresh for THIS region, never"
+echo "    shared with the hub or other regions; single field 'key'; written ONCE, never overwritten"
+echo "    by a re-run — rotate deliberately via the Admin SDK vault operation, not this script)"
+existing_am="$(rv "$REGION_VAULT_ADDR/v1/mountos/data/api-master" | jq -r '.data.data.key // empty')"
+if [[ -z "$existing_am" ]]; then
+  jq -n --arg k "$(sec api_master)" '{data:{key:$k}}' \
+    | rv -X POST "$REGION_VAULT_ADDR/v1/mountos/data/api-master" -d @- >/dev/null
+else
+  echo "    api-master already present in this region's Vault; leaving it as-is"
+fi
 
 echo "==> region Vault: service-verifiers (appserv from hub + dataserv/gcserv/blockserv/hdfsserv/s3gatewayserv; MERGE)"
 cur_rv="$(rv "$REGION_VAULT_ADDR/v1/mountos/data/service-verifiers" | jq -c '.data.data // {}')"

@@ -54,9 +54,9 @@ chmod 0600 /etc/mountos/appserv.env
 curl -fsSL https://n.sh -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if mos_version != "" ~}
-bash /tmp/mos-install.sh --pkg appserv --version ${mos_version}
+bash /tmp/mos-install.sh --pkg mountos-appserv --version ${mos_version}
 %{ else ~}
-bash /tmp/mos-install.sh --pkg appserv
+bash /tmp/mos-install.sh --pkg mountos-appserv
 %{ endif ~}
 
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.

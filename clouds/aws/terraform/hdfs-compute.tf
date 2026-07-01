@@ -86,14 +86,15 @@ resource "aws_launch_template" "hdfsserv" {
 }
 
 # health_check_type EC2 (not ELB): hdfsserv is not behind the hub LBs. Clients
-# reach it directly on 9870 via the gateway security group.
+# reach it directly on 9870 via the gateway security group. PUBLIC subnets:
+# hdfsserv advertises a public IPv4, auto-assigned per instance (ephemeral).
 resource "aws_autoscaling_group" "hdfsserv" {
   count               = var.hdfs_enable ? 1 : 0
   name_prefix         = "mountos-hdfsserv-"
   desired_capacity    = var.hdfs_count
   min_size            = var.hdfs_count
   max_size            = var.hdfs_count
-  vpc_zone_identifier = local.region_subnets[*].id
+  vpc_zone_identifier = local.region_public_subnets[*].id
   health_check_type   = "EC2"
 
   launch_template {

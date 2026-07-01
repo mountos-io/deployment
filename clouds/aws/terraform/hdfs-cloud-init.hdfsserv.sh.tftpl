@@ -5,12 +5,12 @@ set -euo pipefail
 # from the region Vault at boot via the region AppRole (same as dataserv).
 # No local storage, no DB.
 
-# ADVERTISE_ADDR is the instance private IPv4 (IMDSv2).
+# ADVERTISE_ADDR is the instance PUBLIC IPv4 (IMDSv2): reached directly by clients, no proxy. Requires a public subnet (auto-assigned IP).
 TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
-PRIV_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" \
-  http://169.254.169.254/latest/meta-data/local-ipv4)
-[ -n "$PRIV_IP" ] || { echo "IMDS returned empty private IP" >&2; exit 1; }
+PUB_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/public-ipv4)
+[ -n "$PUB_IP" ] || { echo "IMDS returned empty public IP (is this instance in a public subnet with auto-assign enabled?)" >&2; exit 1; }
 
 install -d -m 0755 /etc/mountos
 
@@ -45,7 +45,7 @@ REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 APP_PORT=9870
 PORT_RANGE=9500-9600
-ADVERTISE_ADDR=$PRIV_IP
+ADVERTISE_ADDR=$PUB_IP
 EOF
 chmod 0600 /etc/mountos/hdfsserv.env
 
@@ -53,9 +53,9 @@ chmod 0600 /etc/mountos/hdfsserv.env
 curl -fsSL https://n.sh -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if mos_version != "" ~}
-bash /tmp/mos-install.sh --pkg hdfsserv --version ${mos_version}
+bash /tmp/mos-install.sh --pkg mountos-hdfsserv --version ${mos_version}
 %{ else ~}
-bash /tmp/mos-install.sh --pkg hdfsserv
+bash /tmp/mos-install.sh --pkg mountos-hdfsserv
 %{ endif ~}
 
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.

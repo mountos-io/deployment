@@ -52,7 +52,7 @@ v -X POST "$VAULT_ADDR/v1/sys/auth/approle"   -d '{"type":"approle"}' >/dev/null
 v -X PUT  "$VAULT_ADDR/v1/sys/policies/acl/appserv" \
   -d "$(jq -n '{policy:"path \"mountos/data/*\" { capabilities=[\"read\"] }"}')" >/dev/null
 
-echo "==> write secrets (appserv config, service-verifiers, api-master)"
+echo "==> write secrets (appserv config, service-verifiers)"
 jq -n --arg dialect "$ADMIN_DB_DIALECT" --arg du "$ADMIN_DB_URL" --arg ver "$ADMIN_DB_PROVIDER_VERSION" \
    --arg sk "$(sec appserv_signing)" --arg vk "$(sec appserv_verification)" \
    --arg pk "$(sec admin_public)" --arg hmac "$(sec dashboard_hmac)" \
@@ -65,8 +65,9 @@ existing_v="$(v "$VAULT_ADDR/v1/mountos/data/service-verifiers" | jq -c '.data.d
 jq -n --argjson cur "$existing_v" --arg vk "$(sec appserv_verification)" \
   '{data: ($cur + {appserv: $vk})}' \
   | v -X POST "$VAULT_ADDR/v1/mountos/data/service-verifiers" -d @- >/dev/null
-jq -n --arg am "$(sec api_master)" '{data:{API_MASTER:$am}}' \
-  | v -X POST "$VAULT_ADDR/v1/mountos/data/api-master" -d @- >/dev/null
+# api-master is NOT seeded here: it is a region-only secret (independent per
+# region, appserv has no access to it per the permission matrix) — see
+# bootstrap/region-seed.sh.
 
 echo "==> appserv AppRole"
 v -X POST "$VAULT_ADDR/v1/auth/approle/role/appserv" -d '{"token_policies":"appserv","token_ttl":"1h"}' >/dev/null

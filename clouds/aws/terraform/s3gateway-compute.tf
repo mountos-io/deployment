@@ -86,14 +86,16 @@ resource "aws_launch_template" "s3gatewayserv" {
 }
 
 # health_check_type EC2 (not ELB): s3gatewayserv is not behind the hub LBs.
-# Clients reach it directly on 8484 via the gateway security group.
+# Clients reach it directly on 8484 via the gateway security group. PUBLIC
+# subnets: s3gatewayserv advertises a public IPv4, auto-assigned per instance
+# (ephemeral).
 resource "aws_autoscaling_group" "s3gatewayserv" {
   count               = var.s3gateway_enable ? 1 : 0
   name_prefix         = "mountos-s3gatewayserv-"
   desired_capacity    = var.s3gateway_count
   min_size            = var.s3gateway_count
   max_size            = var.s3gateway_count
-  vpc_zone_identifier = local.region_subnets[*].id
+  vpc_zone_identifier = local.region_public_subnets[*].id
   health_check_type   = "EC2"
 
   launch_template {

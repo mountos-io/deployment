@@ -55,11 +55,15 @@ resource "aws_iam_instance_profile" "region_vault" {
 resource "aws_security_group" "region_vault" {
   count       = local.region_self_vault ? 1 : 0
   name        = "mountos-region-vault"
-  description = "region vault: API 8200 from dataserv, raft 8201 self"
+  description = "region vault: API 8200 from dataserv/blockserv/gateway, raft 8201 self"
   vpc_id      = local.region_vpc_id
   tags        = { Name = "mountos-region-vault" }
 }
 
+# All region-scoped services read their own config from this Vault at startup
+# (VAULT_HASHICORP_ADDRESS is a runtime env var, not just a cloud-init/SSM
+# fetch) — dataserv, blockserv, and the s3gatewayserv/hdfsserv gateway SG all
+# need real network access, not just dataserv.
 resource "aws_vpc_security_group_ingress_rule" "region_vault_api_from_dataserv" {
   count                        = local.region_self_vault ? 1 : 0
   security_group_id            = aws_security_group.region_vault[0].id
@@ -68,6 +72,26 @@ resource "aws_vpc_security_group_ingress_rule" "region_vault_api_from_dataserv" 
   to_port                      = 8200
   ip_protocol                  = "tcp"
   description                  = "Vault API from dataserv"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "region_vault_api_from_blockserv" {
+  count                        = local.region_self_vault ? 1 : 0
+  security_group_id            = aws_security_group.region_vault[0].id
+  referenced_security_group_id = aws_security_group.blockserv.id
+  from_port                    = 8200
+  to_port                      = 8200
+  ip_protocol                  = "tcp"
+  description                  = "Vault API from blockserv"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "region_vault_api_from_gateway" {
+  count                        = local.region_self_vault ? 1 : 0
+  security_group_id            = aws_security_group.region_vault[0].id
+  referenced_security_group_id = aws_security_group.gateway.id
+  from_port                    = 8200
+  to_port                      = 8200
+  ip_protocol                  = "tcp"
+  description                  = "Vault API from hdfsserv/s3gatewayserv"
 }
 
 # Raft peer port, reserved for future 3-node HA.

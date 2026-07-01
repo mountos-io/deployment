@@ -30,11 +30,16 @@ locals {
   region_public_cidrs  = ["10.1.0.0/24", "10.1.1.0/24", "10.1.2.0/24"]
   region_private_cidrs = ["10.1.10.0/24", "10.1.11.0/24", "10.1.12.0/24"]
 
-  # Region-scoped resources (dataserv/gcserv/blockserv/gateway SGs, RDS, Vault,
-  # ASGs) attach to these instead of aws_vpc.main / aws_subnet.private so they
-  # land in the right VPC in either mode.
+  # Region-scoped resources (SGs, RDS, Vault) attach to these instead of
+  # aws_vpc.main / aws_subnet.private so they land in the right VPC in either
+  # mode. Backend-only (region RDS, region Vault) stay on the PRIVATE ones.
   region_vpc_id  = local.region_dedicated_vpc ? aws_vpc.region[0].id : aws_vpc.main.id
   region_subnets = local.region_dedicated_vpc ? aws_subnet.region_private : aws_subnet.private
+
+  # Client-facing data-plane services (dataserv, blockserv, hdfsserv,
+  # s3gatewayserv) advertise a public IPv4 and are reached directly by IP —
+  # they need PUBLIC subnets (IGW route), unlike region RDS/Vault.
+  region_public_subnets = local.region_dedicated_vpc ? aws_subnet.region_public : aws_subnet.public
 }
 
 resource "aws_vpc" "region" {
@@ -75,6 +80,13 @@ resource "aws_route_table" "region_public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.region_igw[0].id
   }
+  # dataserv/blockserv/hdfsserv/s3gatewayserv now run in THIS subnet tier
+  # (public IP requirement) — they still need the peering route back to the
+  # hub VPC (the NLB for SRPC), same as region_private below.
+  route {
+    cidr_block                = var.vpc_cidr
+    vpc_peering_connection_id = aws_vpc_peering_connection.region[0].id
+  }
   tags = { Name = "mountos-region-public" }
 }
 
@@ -99,8 +111,10 @@ resource "aws_nat_gateway" "region_nat" {
 }
 
 # One private route table per AZ: NAT egress (if enabled) plus a route back to
-# the hub VPC over the peering connection, so dataserv/gcserv/blockserv/gateway
-# can reach the hub NLB for SRPC registration.
+# the hub VPC over the peering connection. Only region RDS + region Vault live
+# here now (dataserv/blockserv/hdfsserv/s3gatewayserv moved to region_public
+# for their public-IP requirement) — this route is currently unused by them
+# but harmless to keep for any future private-subnet resource that needs it.
 resource "aws_route_table" "region_private" {
   count  = local.region_dedicated_vpc ? length(aws_subnet.region_private) : 0
   vpc_id = aws_vpc.region[0].id
@@ -154,6 +168,18 @@ resource "aws_vpc_peering_connection_options" "region" {
 resource "aws_route" "hub_to_region" {
   count                     = local.region_dedicated_vpc ? length(aws_route_table.private) : 0
   route_table_id            = aws_route_table.private[count.index].id
+  destination_cidr_block    = var.region_vpc_cidr
+  vpc_peering_connection_id = aws_vpc_peering_connection.region[0].id
+}
+
+# The appserv_srpc NLB (lb.tf) sits in the hub's PUBLIC subnets (internal, but
+# still placed there for the ALB/NAT tier), governed by aws_route_table.public
+# — which only has the IGW default route. Without this, the NLB has no route
+# back to the region VPC and SRPC registration/heartbeat TCP connections from a
+# dedicated-mode region would blackhole on the return path.
+resource "aws_route" "hub_public_to_region" {
+  count                     = local.region_dedicated_vpc ? 1 : 0
+  route_table_id            = aws_route_table.public.id
   destination_cidr_block    = var.region_vpc_cidr
   vpc_peering_connection_id = aws_vpc_peering_connection.region[0].id
 }

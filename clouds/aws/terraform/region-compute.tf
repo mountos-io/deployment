@@ -97,12 +97,16 @@ resource "aws_launch_template" "dataserv" {
 
 # health_check_type EC2 (not ELB): dataserv is not behind the hub LBs. Raft quorum
 # forms via the 6465 peer SG; instances discover peers via hub registration.
+# PUBLIC subnets: dataserv advertises a public IPv4 and is reached directly by
+# clients (no proxy). Auto-assigned per instance (ephemeral) — a replaced node
+# gets a new one, tolerated by the raft quorum + client-side rediscovery, same
+# as any other node-loss/replacement.
 resource "aws_autoscaling_group" "dataserv" {
   name_prefix         = "mountos-dataserv-"
   desired_capacity    = var.dataserv_count
   min_size            = var.dataserv_count
   max_size            = var.dataserv_count
-  vpc_zone_identifier = local.region_subnets[*].id
+  vpc_zone_identifier = local.region_public_subnets[*].id
   health_check_type   = "EC2"
 
   launch_template {
