@@ -32,6 +32,25 @@ resource "aws_vpc_security_group_egress_rule" "region_rds_all" {
   ip_protocol       = "-1"
 }
 
+# Fresh per-apply-lifecycle suffix (see rds.tf's admin resource for why).
+resource "random_id" "region_final_snapshot" {
+  count       = local.region_provision_rds ? 1 : 0
+  byte_length = 4
+}
+
+# Server-side TLS enforcement (see rds.tf's admin parameter group for why).
+resource "aws_db_parameter_group" "region" {
+  count  = local.region_provision_rds ? 1 : 0
+  name   = "mountos-region"
+  family = "postgres${var.region_db_provider_version}"
+
+  parameter {
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "pending-reboot"
+  }
+}
+
 resource "aws_db_instance" "region" {
   count                      = local.region_provision_rds ? 1 : 0
   identifier                 = "mountos-region"
@@ -43,9 +62,10 @@ resource "aws_db_instance" "region" {
   username                   = var.region_db_username
   db_subnet_group_name       = aws_db_subnet_group.region[0].name
   vpc_security_group_ids     = [aws_security_group.region_rds[0].id]
+  parameter_group_name       = aws_db_parameter_group.region[0].name
   storage_encrypted          = true
   skip_final_snapshot        = var.mode != "production"
-  final_snapshot_identifier  = "mountos-region-final"
+  final_snapshot_identifier  = "mountos-region-final-${random_id.region_final_snapshot[0].hex}"
   deletion_protection        = var.mode == "production"
   backup_retention_period    = 14
   copy_tags_to_snapshot      = true
@@ -61,7 +81,5 @@ resource "aws_db_instance" "region" {
   # Secrets Manager directly.
   manage_master_user_password = true
 
-  lifecycle {
-    prevent_destroy = true
-  }
+  # No prevent_destroy: see rds.tf's admin resource for why.
 }

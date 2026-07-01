@@ -10,6 +10,15 @@ locals {
     "kms:GenerateDataKey",
     "kms:ReEncrypt*",
   ]
+
+  # Roles that read region-scoped SSM SecureString params (region_vault_secret_id,
+  # region_vault_ca), gated the same way their own aws_iam_role resources are.
+  region_secret_reader_arns = compact([
+    aws_iam_role.dataserv.arn,
+    var.block_enable ? aws_iam_role.blockserv[0].arn : "",
+    var.hdfs_enable ? aws_iam_role.hdfsserv[0].arn : "",
+    var.s3gateway_enable ? aws_iam_role.s3gatewayserv[0].arn : "",
+  ])
 }
 
 # Explicit key policy: root retains full administration; the scope's Vault role
@@ -35,6 +44,23 @@ data "aws_iam_policy_document" "hub_key" {
         type        = "AWS"
         identifiers = [aws_iam_role.vault[0].arn]
       }
+    }
+  }
+  # appserv reads /mountos/appserv/vault-secret-id + /mountos/hub/vault-ca
+  # (ssm.tf), SecureString-encrypted with this CMK — decrypt-only, and only
+  # reachable via SSM (not a general-purpose KMS grant on this key).
+  statement {
+    sid       = "SsmSecretRead"
+    actions   = ["kms:Decrypt", "kms:DescribeKey"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.appserv.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["ssm.${var.region}.amazonaws.com"]
     }
   }
 }
@@ -76,6 +102,23 @@ data "aws_iam_policy_document" "region_key" {
         type        = "AWS"
         identifiers = [aws_iam_role.region_vault[0].arn]
       }
+    }
+  }
+  # dataserv/blockserv/hdfsserv/s3gatewayserv (whichever are enabled) read
+  # /mountos/region/vault-secret-id + /mountos/region/vault-ca, SecureString-
+  # encrypted with this CMK — decrypt-only, and only reachable via SSM.
+  statement {
+    sid       = "SsmSecretRead"
+    actions   = ["kms:Decrypt", "kms:DescribeKey"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = local.region_secret_reader_arns
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["ssm.${var.region}.amazonaws.com"]
     }
   }
 }

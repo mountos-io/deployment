@@ -1,0 +1,79 @@
+#!/bin/bash
+set -euo pipefail
+
+# Single-node Vault with raft storage and azurekeyvault auto-unseal against the
+# hub key. HA: scale to 3 raft peers (add nodes, join via raft, add 8201 peers
+# to the NSG).
+
+apt-get update -y
+apt-get install -y curl jq gnupg lsb-release openssl
+curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+  > /etc/apt/sources.list.d/hashicorp.list
+apt-get update -y
+apt-get install -y vault
+
+install -d -m 0750 -o vault -g vault /opt/vault/data
+
+# Azure IMDS: fixed "Metadata: true" header, no per-request token dance.
+meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
+azure_token() {
+  meta "identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net&client_id=$1" | jq -r .access_token
+}
+
+PRIV_IP="$(meta 'instance?api-version=2021-02-01' | jq -r '.network.interface[0].ipv4.ipAddress[0].privateIpAddress')"
+[ -n "$PRIV_IP" ] && [ "$PRIV_IP" != "null" ] || { echo "IMDS returned empty private IP" >&2; exit 1; }
+
+# Self-signed cert (its own CA). Consumers fetch this CA from Key Vault to trust Vault.
+mkdir -p /opt/vault/tls
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /opt/vault/tls/key.pem -out /opt/vault/tls/cert.pem -days 3650 -subj "/CN=vault" -addext "subjectAltName=IP:$PRIV_IP"
+chmod 600 /opt/vault/tls/key.pem
+chown -R vault:vault /opt/vault/tls
+
+cat >/etc/vault.d/vault.hcl <<EOF
+ui = true
+
+storage "raft" {
+  path    = "/opt/vault/data"
+  node_id = "$(hostname)"
+}
+
+listener "tcp" {
+  address       = "0.0.0.0:8200"
+  tls_cert_file = "/opt/vault/tls/cert.pem"
+  tls_key_file  = "/opt/vault/tls/key.pem"
+}
+
+seal "azurekeyvault" {
+  vault_name = "${key_vault_name}"
+  key_name   = "${key_name}"
+  client_id  = "${identity_client_id}"
+}
+
+api_addr     = "https://$PRIV_IP:8200"
+cluster_addr = "https://$PRIV_IP:8201"
+EOF
+
+# Explicit retry policy (don't rely on the packaged unit's default): a
+# transient RBAC-propagation-window failure on first boot should retry, not
+# leave the node permanently sealed/dead.
+mkdir -p /etc/systemd/system/vault.service.d
+cat >/etc/systemd/system/vault.service.d/override.conf <<'EOF'
+[Service]
+Restart=on-failure
+RestartSec=5
+EOF
+systemctl daemon-reload
+
+systemctl enable --now vault
+
+# Publish the self-signed CA to Key Vault so consumers can trust Vault's TLS.
+TOKEN="$(azure_token "${identity_client_id}")"
+CA_PEM="$(cat /opt/vault/tls/cert.pem)"
+curl -fsSL -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "${key_vault_uri}secrets/${ca_secret}?api-version=7.4" \
+  -d "$(jq -n --arg v "$CA_PEM" '{value:$v}')" >/dev/null
+
+# OPERATOR ACTION (run ONCE, manually): `vault operator init`.
+# Store the recovery keys + root token securely (e.g. Key Vault).
+# This script intentionally does NOT init Vault or persist any secrets.

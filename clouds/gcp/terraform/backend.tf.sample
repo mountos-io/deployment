@@ -1,0 +1,9 @@
+# Remote state is client-owned. Copy this file to backend.tf and fill in your values,
+# then run `terraform init`. The GCS bucket must already exist (with versioning enabled).
+#
+# terraform {
+#   backend "gcs" {
+#     bucket = "my-mountos-tfstate"
+#     prefix = "mountos/init-hub"
+#   }
+# }

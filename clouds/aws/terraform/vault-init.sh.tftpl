@@ -44,6 +44,17 @@ api_addr     = "https://$PRIV_IP:8200"
 cluster_addr = "https://$PRIV_IP:8201"
 EOF
 
+# Explicit retry policy (don't rely on the packaged unit's default): a
+# transient KMS-grant-propagation-window failure on first boot should retry,
+# not leave the node permanently sealed/dead.
+mkdir -p /etc/systemd/system/vault.service.d
+cat >/etc/systemd/system/vault.service.d/override.conf <<'EOF'
+[Service]
+Restart=on-failure
+RestartSec=5
+EOF
+systemctl daemon-reload
+
 systemctl enable --now vault
 
 # Publish the self-signed CA to SSM so consumers can trust Vault's TLS.

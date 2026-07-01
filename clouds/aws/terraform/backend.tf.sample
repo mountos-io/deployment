@@ -1,5 +1,8 @@
 # Remote state is client-owned. Copy this file to backend.tf and fill in your values,
-# then run `terraform init`. The bucket/table must already exist.
+# then run `terraform init`. The bucket/table must already exist and should block public
+# access (state holds DB DSNs and AppRole secret-ids in plaintext). `encrypt = true` uses
+# SSE-S3 by default; set `kms_key_id` to a CMK if you want state encrypted with a key you
+# control instead.
 #
 # terraform {
 #   backend "s3" {

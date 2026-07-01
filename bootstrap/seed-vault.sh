@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 # Operator-side bootstrap (run ONCE, from your workstation/bastion):
 #   generate fresh key material -> seed Vault (KVv2) -> create the appserv AppRole.
-# Idempotent and NON-DESTRUCTIVE: re-running overwrites the same paths and
-# re-issues a secret_id. Instances never run this; they only READ Vault.
+# Idempotent and NON-DESTRUCTIVE: re-running overwrites the same paths. It does
+# NOT issue a secret_id (see the role_id output note at the bottom) — deliver
+# secret_id to instances via Vault response-wrapping at launch, separately.
+# Instances never run this; they only READ Vault.
 #
 # Requires: VAULT_ADDR + VAULT_TOKEN (a short-lived admin/bootstrap token) in env.
-# ADMIN_DB_URL: either set it directly (byo mode), or — in provision-rds mode,
-# where AWS manages the master password in Secrets Manager and it is never a
-# Terraform value — set ADMIN_DB_HOST + ADMIN_DB_SECRET_ARN (both from
-# `terraform output`) and this script fetches the password + builds the DSN.
-# Requires `aws` CLI credentials with secretsmanager:GetSecretValue on that ARN.
-# Vault now serves TLS. Set VAULT_CACERT to the CA PEM before running (fetch via:
-#   aws ssm get-parameter --name /mountos/hub/vault-ca --query Parameter.Value --output text > vault-ca.pem).
+# ADMIN_DB_URL: either set it directly (byo mode), or — on AWS in provision-rds
+# mode, where AWS manages the master password in Secrets Manager and it is
+# never a Terraform value — set ADMIN_DB_HOST + ADMIN_DB_SECRET_ARN (both from
+# `terraform output`) and this script fetches the password + builds the DSN
+# (requires `aws` CLI credentials with secretsmanager:GetSecretValue on that ARN).
+# GCP/Azure: their `admin_db_url` terraform output is already a complete DSN
+# (no equivalent to AWS's managed-password flow — see clouds/gcp|azure/terraform/rds.tf's
+# PARITY GAP note) — just set ADMIN_DB_URL directly, same as byo mode.
+# Vault now serves TLS. Set VAULT_CACERT to the CA PEM before running:
+#   AWS:   aws ssm get-parameter --name /mountos/hub/vault-ca --query Parameter.Value --output text > vault-ca.pem
+#   GCP:   gcloud secrets versions access latest --secret=mountos-hub-vault-ca > vault-ca.pem
+#   Azure: az keyvault secret show --vault-name <hub-key-vault> --name mountos-hub-vault-ca --query value -o tsv > vault-ca.pem
 set -euo pipefail
 umask 077 # secrets file is created mode 0600
 
@@ -28,7 +35,9 @@ if [[ -z "${ADMIN_DB_URL:-}" ]]; then
   echo "==> fetching the AWS-managed admin DB master password from Secrets Manager"
   admin_db_pw="$(aws secretsmanager get-secret-value --secret-id "$ADMIN_DB_SECRET_ARN" --query SecretString --output text | jq -r .password)"
   admin_db_user="$(jq -rn --arg u "${ADMIN_DB_USERNAME:-mountos}" '$u|@uri')"
-  admin_db_pw_enc="$(jq -rn --arg p "$admin_db_pw" '$p|@uri')"
+  # Env, not --arg: the password would otherwise sit in this process's argv,
+  # visible to other local users via ps/proc for the subprocess's lifetime.
+  admin_db_pw_enc="$(ADMIN_DB_PW="$admin_db_pw" jq -rn 'env.ADMIN_DB_PW|@uri')"
   ADMIN_DB_URL="postgresql://${admin_db_user}:${admin_db_pw_enc}@${ADMIN_DB_HOST}/mountos_admin?sslmode=require"
 fi
 
@@ -44,7 +53,28 @@ if [[ ! -f "$secrets" ]]; then
 fi
 sec() { jq -r ".$1" "$secrets"; }
 
-v() { curl -s ${VAULT_CACERT:+--cacert "$VAULT_CACERT"} -H "X-Vault-Token: $VAULT_TOKEN" "$@"; }
+cacert_opt=()
+[[ -n "${VAULT_CACERT:-}" ]] && cacert_opt=(--cacert "$VAULT_CACERT")
+v() { curl -sf "${cacert_opt[@]}" -H "X-Vault-Token: $VAULT_TOKEN" "$@"; }
+# Like v(), but tolerates 404 (KVv2 path not written yet) as an empty read,
+# rather than the -f/-s combination in v() masking a real auth/server error
+# behind the same "empty" shape jq would coerce a 404 body into.
+v_opt() {
+  local resp status body
+  resp="$(curl -s -w '\n%{http_code}' "${cacert_opt[@]}" -H "X-Vault-Token: $VAULT_TOKEN" "$@")"
+  status="${resp##*$'\n'}"
+  body="${resp%$'\n'*}"
+  case "$status" in
+  200) printf '%s' "$body" ;;
+  404) printf '{"data":{"data":{}}}' ;;
+  *)
+    # Body not echoed: KVv2 error responses can echo back request context and
+    # the path may already hold secret material in a prior successful write.
+    echo "vault request failed (HTTP $status) for $*" >&2
+    exit 1
+    ;;
+  esac
+}
 
 echo "==> enable KVv2 + AppRole (idempotent)"
 v -X POST "$VAULT_ADDR/v1/sys/mounts/mountos" -d '{"type":"kv","options":{"version":"2"}}' >/dev/null || true
@@ -53,17 +83,20 @@ v -X PUT  "$VAULT_ADDR/v1/sys/policies/acl/appserv" \
   -d "$(jq -n '{policy:"path \"mountos/data/*\" { capabilities=[\"read\"] }"}')" >/dev/null
 
 echo "==> write secrets (appserv config, service-verifiers)"
-jq -n --arg dialect "$ADMIN_DB_DIALECT" --arg du "$ADMIN_DB_URL" --arg ver "$ADMIN_DB_PROVIDER_VERSION" \
-   --arg sk "$(sec appserv_signing)" --arg vk "$(sec appserv_verification)" \
-   --arg pk "$(sec admin_public)" --arg hmac "$(sec dashboard_hmac)" \
-  '{data:{DB_DIALECT:$dialect,DB_PROVIDER:$dialect,DB_URL:$du,DB_PROVIDER_VERSION:$ver,
-          ED25519_SIGNING_KEY:$sk,ED25519_VERIFICATION_KEY:$vk,
-          PROVIDER_VERIFICATION_KEY:$pk,DASHBOARD_USER_HMAC_KEY:$hmac}}' \
+# Env, not --arg/--argjson: DB_URL and the signing key are real secrets and
+# would otherwise sit in this process's argv (ps-visible to other local
+# users for the subprocess's lifetime).
+DB_DIALECT="$ADMIN_DB_DIALECT" DB_URL="$ADMIN_DB_URL" DB_VER="$ADMIN_DB_PROVIDER_VERSION" \
+  SIGN_KEY="$(sec appserv_signing)" VERIFY_KEY="$(sec appserv_verification)" \
+  PUB_KEY="$(sec admin_public)" HMAC_KEY="$(sec dashboard_hmac)" \
+  jq -n '{data:{DB_DIALECT:env.DB_DIALECT,DB_PROVIDER:env.DB_DIALECT,DB_URL:env.DB_URL,DB_PROVIDER_VERSION:env.DB_VER,
+          ED25519_SIGNING_KEY:env.SIGN_KEY,ED25519_VERIFICATION_KEY:env.VERIFY_KEY,
+          PROVIDER_VERIFICATION_KEY:env.PUB_KEY,DASHBOARD_USER_HMAC_KEY:env.HMAC_KEY}}' \
   | v -X POST "$VAULT_ADDR/v1/mountos/data/appserv" -d @- >/dev/null
 # MERGE so a region fan-out (which adds dataserv/gcserv verifiers) is not wiped on re-seed.
-existing_v="$(v "$VAULT_ADDR/v1/mountos/data/service-verifiers" | jq -c '.data.data // {}')"
-jq -n --argjson cur "$existing_v" --arg vk "$(sec appserv_verification)" \
-  '{data: ($cur + {appserv: $vk})}' \
+existing_v="$(v_opt "$VAULT_ADDR/v1/mountos/data/service-verifiers" | jq -c '.data.data // {}')"
+VERIFY_KEY="$(sec appserv_verification)" jq -n --argjson cur "$existing_v" \
+  '{data: ($cur + {appserv: env.VERIFY_KEY})}' \
   | v -X POST "$VAULT_ADDR/v1/mountos/data/service-verifiers" -d @- >/dev/null
 # api-master is NOT seeded here: it is a region-only secret (independent per
 # region, appserv has no access to it per the permission matrix) — see

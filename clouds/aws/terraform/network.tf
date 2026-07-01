@@ -44,13 +44,21 @@ resource "aws_subnet" "private" {
   tags              = { Name = "mountos-private-${local.azs[count.index]}", Tier = "private" }
 }
 
+# Routes modeled as standalone aws_route resources (not inline route {}
+# blocks) throughout this module: region-network.tf adds further routes to
+# this same table in dedicated mode, and the AWS provider warns that mixing
+# inline route blocks with standalone aws_route on one table causes Terraform
+# to fight over ownership (each write can silently overwrite/churn the
+# other's routes).
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
-  }
-  tags = { Name = "mountos-public" }
+  tags   = { Name = "mountos-public" }
+}
+
+resource "aws_route" "public_igw" {
+  route_table_id         = aws_route_table.public.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.igw.id
 }
 
 resource "aws_route_table_association" "public" {
@@ -78,14 +86,14 @@ resource "aws_nat_gateway" "nat" {
 resource "aws_route_table" "private" {
   count  = length(aws_subnet.private)
   vpc_id = aws_vpc.main.id
-  dynamic "route" {
-    for_each = var.enable_nat ? [1] : []
-    content {
-      cidr_block     = "0.0.0.0/0"
-      nat_gateway_id = aws_nat_gateway.nat[count.index].id
-    }
-  }
-  tags = { Name = "mountos-private-${local.azs[count.index]}" }
+  tags   = { Name = "mountos-private-${local.azs[count.index]}" }
+}
+
+resource "aws_route" "private_nat" {
+  count                  = var.enable_nat ? length(aws_subnet.private) : 0
+  route_table_id         = aws_route_table.private[count.index].id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat[count.index].id
 }
 
 resource "aws_route_table_association" "private" {

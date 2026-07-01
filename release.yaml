@@ -32,13 +32,25 @@ artifacts:
     pkg: mos-verify
     source: verify
 
-# Cloud demarcation. AWS only today; each cloud's substrate is self-contained
-# under clouds/<cloud>/terraform and selected via `CLOUD=<cloud> make ...`.
+# Cloud demarcation. Each cloud's substrate is self-contained under
+# clouds/<cloud>/terraform and selected via `CLOUD=<cloud> make ...`.
+#
+# VERIFICATION LEVELS DIFFER BY CLOUD: AWS is Floci-plan-verified (a local AWS
+# API emulator lets `terraform plan` run against a full graph without a real
+# account — see mountos-overview/deploy-floci-test/). GCP and Azure have no
+# equivalent local emulator, so they are validated at `terraform validate` +
+# tflint (schema/syntax-level) only — graph-correct but PLAN-UNPROVEN and
+# RUNTIME-UNPROVEN until exercised against a real project/subscription. Both
+# also have a documented parity gap vs AWS's RDS manage_master_user_password:
+# their DB master password is a Terraform value (random_password), not
+# platform-managed — see each cloud's rds.tf.
 clouds:
   aws:
     terraform: clouds/aws/terraform
-  # gcp:   { terraform: clouds/gcp/terraform }    # planned
-  # azure: { terraform: clouds/azure/terraform }  # planned
+  gcp:
+    terraform: clouds/gcp/terraform
+  azure:
+    terraform: clouds/azure/terraform
 
 # Distribution:
 #   source of truth  : the mountos-io/deployment git repo, tagged v<version>.

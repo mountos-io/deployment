@@ -1,0 +1,135 @@
+# Copy to terraform.tfvars and fill in. Production placeholders below.
+
+region = "eastus"
+mode   = "production"
+
+# SSH public key for operator break-glass access (Azure requires either an SSH
+# key or password auth on every VM; not used by the boot/config flow itself).
+admin_ssh_public_key = "" # REQUIRED — e.g. "ssh-ed25519 AAAA..."
+
+# Public hub. Clients reach https://<hub_domain>; region services reach the
+# internal LB directly (no DNS needed for SRPC).
+hub_domain = "" # REQUIRED — your real public FQDN, e.g. hub.acme.com (placeholders are rejected)
+
+# Existing Azure DNS zone for hub_domain. Empty skips DNS.
+dns_zone_name           = ""
+dns_zone_resource_group = "" # required when dns_zone_name is set
+
+# Existing Key Vault certificate secret id for the App Gateway HTTPS listener.
+# REQUIRED — Azure has no zero-touch DNS-validated managed-cert primitive like
+# AWS ACM or Google-managed certs; bring your own (issue via Key Vault's
+# integrated CA, Let's Encrypt, or import an existing PFX).
+hub_certificate_secret_id = ""
+
+# CIDR allowed to reach client-facing ports. Required; scope to your network — do not use 0.0.0.0/0 in production.
+client_cidr = "203.0.113.0/24" # REPLACE with your operator/client CIDR
+
+# appserv fleet (arm64, Dpsv5).
+appserv_count    = 2
+appserv_vm_size  = "Standard_D2ps_v5"
+
+# Admin DB. provision-pg creates Postgres Flexible Server; byo uses admin_db_url instead.
+admin_db_mode             = "provision-pg"
+admin_db_provider_version = "18"
+admin_db_url              = "" # set only when admin_db_mode = byo
+
+db_sku        = "GP_Standard_D2s_v3"
+db_storage_gb = 131072 # 128 GiB, the smallest Flexible Server storage tier
+db_username   = "mountos"
+# No db_password var: Postgres Flexible Server has no AWS-managed-password
+# equivalent — the password is a Terraform value (random_password), stored in
+# Key Vault. See rds.tf's PARITY GAP note. `terraform output admin_db_url`
+# gives a complete DSN — set ADMIN_DB_URL to it directly for `make bootstrap`.
+
+# Vault. self-hosted provisions a VM raft node with azurekeyvault auto-unseal.
+# managed-byo uses vault_addr instead.
+vault_hosting  = "self-hosted"
+vault_addr     = "" # set only when vault_hosting = managed-byo
+vault_vm_size  = "Standard_D2ps_v5"
+
+# appserv AppRole from `make bootstrap`. secret_id is short-TTL; prefer Key Vault/wrapped delivery.
+vault_role_id   = ""
+vault_secret_id = ""
+
+# mountOS package version. Empty installs latest.
+mos_version = ""
+
+# ---------- region (dataserv + co-located gcserv) ----------
+
+# Cluster UUID this region belongs to. Comes from the HUB provision step
+# (created via the Admin SDK after the hub is up). Not created here.
+region_cluster_id = "00000000-0000-0000-0000-000000000000"
+
+# VNet placement for region resources. shared (default): region lives in the
+# hub's VNet — simplest, no extra networking. dedicated: the region gets its
+# own VNet in the SAME subscription/resource group + Azure region, peered to
+# the hub VNet. NOT covered: cross-subscription or cross-Azure-region regions
+# (bigger change — a second VNet peering/provider setup).
+region_vpc_mode          = "shared"
+region_vnet_cidr         = "10.1.0.0/16"
+region_vnet_cidr_public  = "10.1.0.0/24"  # used only when region_vpc_mode = dedicated
+region_vnet_cidr_private = "10.1.10.0/24" # used only when region_vpc_mode = dedicated
+
+# dataserv fleet (arm64). 1 per zone for raft quorum.
+dataserv_count   = 3
+dataserv_vm_size = "Standard_D8ps_v5"
+
+# METAENGINE_ARENA_SIZE unit string. ~5M files/GiB; prod is much larger.
+arena_size = "1GB"
+
+# Raft data disk (Premium_LRS) at /mnt/raft. Ephemeral per instance; quorum re-syncs on replacement.
+raft_disk_gb = 100
+
+# Run gcserv co-located on each dataserv instance.
+gcserv_colocated = true
+
+# Region DB (mountos_data). provision-pg creates Postgres Flexible Server; byo uses region_db_url.
+# Region has its own credentials, separate from the hub admin DB.
+region_db_mode             = "provision-pg"
+region_db_url              = "" # set only when region_db_mode = byo
+region_db_sku              = "GP_Standard_D2s_v3"
+region_db_storage_gb       = 131072
+region_db_username         = "mountos"
+region_db_provider_version = "18"
+# No region_db_password var — see the admin DB note above; same parity gap.
+
+# Region Vault (separate from the hub Vault). self-hosted provisions a VM raft
+# node with azurekeyvault auto-unseal against the region key. managed-byo uses region_vault_addr.
+region_vault_hosting = "self-hosted"
+region_vault_addr    = "" # set only when region_vault_hosting = managed-byo
+region_vault_vm_size = "Standard_D2ps_v5"
+
+# dataserv AppRole for the region Vault, from the region seed step.
+region_vault_role_id   = ""
+region_vault_secret_id = ""
+
+# ---------- blockserv (block data-plane) ----------
+
+# Opt-in; only needed for local-block backends. Its Vault keys are already seeded
+# by `make region-bootstrap` (unconditional); this only toggles running the fleet.
+# Reuses the region Vault AppRole above (blockserv reads mountos/blockserv under
+# the same mountos/data/* policy).
+block_enable = false
+
+# Active-active members of one block storage (up to 3, distinct zones). Each
+# block_volume_id is a block volume UUID from provisioning a block storage on the
+# hub via the Admin SDK; zone_index selects which zone the member lands in.
+block_members = [
+  # { block_volume_id = "00000000-0000-0000-0000-000000000000", zone_index = 0 },
+  # { block_volume_id = "11111111-1111-1111-1111-111111111111", zone_index = 1 },
+  # { block_volume_id = "22222222-2222-2222-2222-222222222222", zone_index = 2 },
+]
+
+# Network-optimized arm64 family and throughput-oriented cache disk per member.
+block_vm_size  = "Standard_D8ps_v5"
+block_cache_gb = 500
+
+# ---------- hdfsserv / s3gatewayserv (protocol gateways) ----------
+
+# Opt-in and independent of each other. Both are stateless, cluster-wide
+# gateways (not tied to a storage type); their Vault keys are already seeded by
+# `make region-bootstrap` (unconditional). Reuses the region Vault AppRole above.
+hdfs_enable      = false
+hdfs_count       = 2
+s3gateway_enable = false
+s3gateway_count  = 2

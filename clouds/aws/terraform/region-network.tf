@@ -73,21 +73,29 @@ resource "aws_subnet" "region_private" {
   tags              = { Name = "mountos-region-private-${local.azs[count.index]}", Tier = "private" }
 }
 
+# Routes modeled as standalone aws_route resources (not inline route {}
+# blocks), matching network.tf — avoids the provider-documented risk of a
+# route table's inline block and an external aws_route fighting for ownership.
 resource "aws_route_table" "region_public" {
   count  = local.region_dedicated_vpc ? 1 : 0
   vpc_id = aws_vpc.region[0].id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.region_igw[0].id
-  }
-  # dataserv/blockserv/hdfsserv/s3gatewayserv now run in THIS subnet tier
-  # (public IP requirement) — they still need the peering route back to the
-  # hub VPC (the NLB for SRPC), same as region_private below.
-  route {
-    cidr_block                = var.vpc_cidr
-    vpc_peering_connection_id = aws_vpc_peering_connection.region[0].id
-  }
-  tags = { Name = "mountos-region-public" }
+  tags   = { Name = "mountos-region-public" }
+}
+
+resource "aws_route" "region_public_igw" {
+  count                  = local.region_dedicated_vpc ? 1 : 0
+  route_table_id         = aws_route_table.region_public[0].id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.region_igw[0].id
+}
+
+# dataserv/blockserv/hdfsserv/s3gatewayserv run in THIS subnet tier (public IP
+# requirement) — they still need a route back to the hub VPC (the NLB for SRPC).
+resource "aws_route" "region_public_to_hub" {
+  count                     = local.region_dedicated_vpc ? 1 : 0
+  route_table_id            = aws_route_table.region_public[0].id
+  destination_cidr_block    = var.vpc_cidr
+  vpc_peering_connection_id = aws_vpc_peering_connection.region[0].id
 }
 
 resource "aws_route_table_association" "region_public" {
@@ -118,18 +126,21 @@ resource "aws_nat_gateway" "region_nat" {
 resource "aws_route_table" "region_private" {
   count  = local.region_dedicated_vpc ? length(aws_subnet.region_private) : 0
   vpc_id = aws_vpc.region[0].id
-  dynamic "route" {
-    for_each = var.enable_nat ? [1] : []
-    content {
-      cidr_block     = "0.0.0.0/0"
-      nat_gateway_id = aws_nat_gateway.region_nat[count.index].id
-    }
-  }
-  route {
-    cidr_block                = var.vpc_cidr
-    vpc_peering_connection_id = aws_vpc_peering_connection.region[0].id
-  }
-  tags = { Name = "mountos-region-private-${local.azs[count.index]}" }
+  tags   = { Name = "mountos-region-private-${local.azs[count.index]}" }
+}
+
+resource "aws_route" "region_private_nat" {
+  count                  = local.region_dedicated_vpc && var.enable_nat ? length(aws_subnet.region_private) : 0
+  route_table_id         = aws_route_table.region_private[count.index].id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.region_nat[count.index].id
+}
+
+resource "aws_route" "region_private_to_hub" {
+  count                     = local.region_dedicated_vpc ? length(aws_subnet.region_private) : 0
+  route_table_id            = aws_route_table.region_private[count.index].id
+  destination_cidr_block    = var.vpc_cidr
+  vpc_peering_connection_id = aws_vpc_peering_connection.region[0].id
 }
 
 resource "aws_route_table_association" "region_private" {

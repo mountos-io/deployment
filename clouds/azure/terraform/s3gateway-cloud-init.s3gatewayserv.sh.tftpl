@@ -1,0 +1,90 @@
+#!/bin/bash
+set -euo pipefail
+
+apt-get update -y
+apt-get install -y curl jq openssl
+
+# s3gatewayserv is a stateless, cluster-wide S3 REST gateway. It reads its config
+# from the region Vault at boot via the region AppRole (same as dataserv).
+# No local storage, no DB.
+
+# ADVERTISE_ADDR is the instance PUBLIC IPv4 (ephemeral, from a public IP
+# prefix): reached directly by clients, no proxy.
+meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
+PUB_IP="$(meta 'instance?api-version=2021-02-01' | jq -r '.network.interface[0].ipv4.ipAddress[0].publicIpAddress // empty')"
+[ -n "$PUB_IP" ] || { echo "IMDS returned empty public IP (is this instance's NIC configured with a Public IP?)" >&2; exit 1; }
+
+install -d -m 0755 /etc/mountos
+
+# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when Vault publishes it after boot. See the helper below.
+cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
+VAULT_URI="$1"; CA_SECRET="$2"; SECRET_ID_SECRET="$3"; CLIENT_ID="$4"; SECRET_ENV="$5"
+CA_FILE=/etc/mountos/vault-ca.pem
+meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
+TOKEN="$(meta "identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net&client_id=$CLIENT_ID" | jq -r .access_token)"
+curl -fsSL -H "Authorization: Bearer $TOKEN" \
+  "$${VAULT_URI}secrets/$CA_SECRET?api-version=7.4" \
+  2>/dev/null | jq -r '.value // empty' > "$CA_FILE" 2>/dev/null || true
+if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+  echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+fi
+SID="$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+  "$${VAULT_URI}secrets/$SECRET_ID_SECRET?api-version=7.4" \
+  2>/dev/null | jq -r '.value // empty' 2>/dev/null || true)"
+if [ -z "$SID" ]; then
+  echo "waiting for AppRole secret_id $SECRET_ID_SECRET" >&2; exit 1
+fi
+umask 077
+printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
+EOF
+chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
+
+cat >/etc/mountos/s3gatewayserv.env <<EOF
+VAULT_PROVIDER=hashicorp
+VAULT_HASHICORP_ADDRESS=${vault_addr}
+VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+VAULT_CACERT=/etc/mountos/vault-ca.pem
+REGION_CLUSTER_ID=${region_cluster_id}
+SERVICE_RPC_ADDR=${srpc_addr}
+APP_PORT=8484
+PORT_RANGE=9500-9600
+ADVERTISE_ADDR=$PUB_IP
+EOF
+chmod 0600 /etc/mountos/s3gatewayserv.env
+
+# Install s3gatewayserv. No DB, no license file (hublicense model).
+curl -fsSL https://n.sh -o /tmp/mos-install.sh
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+%{ if mos_version != "" ~}
+bash /tmp/mos-install.sh --pkg mountos-s3gatewayserv --version ${mos_version}
+%{ else ~}
+bash /tmp/mos-install.sh --pkg mountos-s3gatewayserv
+%{ endif ~}
+
+# Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
+install -m 0600 /dev/null /etc/mountos/s3gatewayserv.secret.env
+
+cat >/etc/systemd/system/s3gatewayserv.service <<EOF
+[Unit]
+Description=mountOS s3gatewayserv
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+EnvironmentFile=/etc/mountos/s3gatewayserv.env
+EnvironmentFile=-/etc/mountos/s3gatewayserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} ${region_vault_ca_secret} ${region_secret_id_secret} ${identity_client_id} /etc/mountos/s3gatewayserv.secret.env
+ExecStart=/usr/local/bin/s3gatewayserv
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now s3gatewayserv

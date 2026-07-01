@@ -1,0 +1,95 @@
+#!/bin/bash
+set -euo pipefail
+
+apt-get update -y
+apt-get install -y curl jq openssl
+
+# appserv reads ALL config from Vault at boot via AppRole. Only the bootstrap
+# env below is written locally. ADVERTISE_ADDR is the instance private IPv4
+# (reached only via the internal LB backend, same as AWS's appserv).
+meta() { curl -fsSL -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
+gcp_token() { meta "instance/service-accounts/default/token" | jq -r .access_token; }
+PRIV_IP="$(meta 'instance/network-interfaces/0/ip')"
+[ -n "$PRIV_IP" ] || { echo "metadata server returned empty private IP" >&2; exit 1; }
+
+install -d -m 0755 /etc/mountos
+
+# Self-signed cert so the LB re-encrypts to appserv (HTTPS-only when TLS_* + HTTPS_PORT set).
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/mountos/appserv-key.pem -out /etc/mountos/appserv-cert.pem -days 3650 -subj "/CN=appserv" -addext "subjectAltName=IP:$PRIV_IP"
+chmod 0600 /etc/mountos/appserv-key.pem
+
+# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when Vault publishes it after boot. See the helper below.
+cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
+#!/bin/bash
+# ExecStartPre: (re)fetch the Vault CA + AppRole secret_id from Secret Manager so
+# the node self-heals when Vault publishes them after boot. Non-zero exit -> systemd retries.
+set -euo pipefail
+PROJECT="$1"; CA_SECRET="$2"; SECRET_ID_SECRET="$3"; SECRET_ENV="$4"
+CA_FILE=/etc/mountos/vault-ca.pem
+meta() { curl -fsSL -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
+TOKEN="$(meta 'instance/service-accounts/default/token' | jq -r .access_token)"
+curl -fsSL -H "Authorization: Bearer $TOKEN" \
+  "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$CA_SECRET/versions/latest:access" \
+  2>/dev/null | jq -r '.payload.data // empty' | base64 -d > "$CA_FILE" 2>/dev/null || true
+if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+  echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+fi
+SID="$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+  "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$SECRET_ID_SECRET/versions/latest:access" \
+  2>/dev/null | jq -r '.payload.data // empty' | base64 -d 2>/dev/null || true)"
+if [ -z "$SID" ]; then
+  echo "waiting for AppRole secret_id $SECRET_ID_SECRET" >&2; exit 1
+fi
+umask 077
+printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
+EOF
+chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
+
+cat >/etc/mountos/appserv.env <<EOF
+VAULT_PROVIDER=hashicorp
+VAULT_HASHICORP_ADDRESS=${vault_addr}
+VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+VAULT_CACERT=/etc/mountos/vault-ca.pem
+PORT=8080
+HTTPS_PORT=8443
+TLS_CERT_FILE=/etc/mountos/appserv-cert.pem
+TLS_KEY_FILE=/etc/mountos/appserv-key.pem
+ADVERTISE_ADDR=$PRIV_IP
+EOF
+chmod 0600 /etc/mountos/appserv.env
+
+# Install appserv (built-in free 5 TiB; no license required).
+curl -fsSL https://n.sh -o /tmp/mos-install.sh
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+%{ if mos_version != "" ~}
+bash /tmp/mos-install.sh --pkg mountos-appserv --version ${mos_version}
+%{ else ~}
+bash /tmp/mos-install.sh --pkg mountos-appserv
+%{ endif ~}
+
+# Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
+install -m 0600 /dev/null /etc/mountos/appserv.secret.env
+
+cat >/etc/systemd/system/appserv.service <<EOF
+[Unit]
+Description=mountOS appserv
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+EnvironmentFile=/etc/mountos/appserv.env
+EnvironmentFile=-/etc/mountos/appserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} ${hub_vault_ca_secret} ${appserv_secret_id_secret} /etc/mountos/appserv.secret.env
+ExecStartPre=/usr/local/bin/appserv db install
+ExecStart=/usr/local/bin/appserv
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now appserv

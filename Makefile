@@ -5,7 +5,9 @@
 SHELL := /usr/bin/env bash
 HERE  := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # Cloud demarcation: each cloud's substrate lives under clouds/<cloud>/terraform.
-# AWS is the only path today; gcp/azure slot in without touching the rest.
+# aws | gcp | azure. See release.yaml's clouds section for the verification
+# level each one has (AWS is Floci-plan-verified; GCP/Azure are validate+tflint
+# only — no local emulator equivalent exists for those).
 CLOUD ?= aws
 TF    := $(HERE)clouds/$(CLOUD)/terraform
 
@@ -15,7 +17,7 @@ help:
 	@echo "mountOS init-hub (production):"
 	@echo "  interview  scaffold answers.env from the sample"
 	@echo "  plan       terraform plan  (preview the substrate)"
-	@echo "  apply      terraform apply (provision VPC/KMS/RDS/Vault/ASG/ALB+NLB; converges, never destroys)"
+	@echo "  apply      terraform apply (provision network/KMS/DB/Vault/compute/LBs; converges, never destroys)"
 	@echo "  bootstrap  generate fresh keys -> seed Vault -> create AppRole (run ONCE, operator-side)"
 	@echo "  verify     read-only health gates against the running hub"
 	@echo "  upgrade    set MOS_VERSION in answers.env, then 'make apply' to roll the ASG (no data touched)"

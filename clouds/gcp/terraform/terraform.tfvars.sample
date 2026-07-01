@@ -1,0 +1,133 @@
+# Copy to terraform.tfvars and fill in. Production placeholders below.
+
+project_id = "" # REQUIRED — your GCP project id
+region     = "us-central1"
+mode       = "production"
+
+# Public hub. Clients reach https://<hub_domain>; region services reach the
+# internal LB directly (no DNS needed for SRPC).
+hub_domain = "" # REQUIRED — your real public FQDN, e.g. hub.acme.com (placeholders are rejected)
+
+# Existing Cloud DNS managed zone name for hub_domain. Empty skips DNS + the
+# Google-managed cert (operator then attaches hub_certificate_id manually).
+dns_zone_name = ""
+
+hub_certificate_id = "" # set this OR dns_zone_name for the HTTPS proxy
+
+# CIDR allowed to reach client-facing ports. Required; scope to your network — do not use 0.0.0.0/0 in production.
+client_cidr = "203.0.113.0/24" # REPLACE with your operator/client CIDR
+
+# Break-glass SSH via IAP TCP forwarding (source restricted to Google's fixed
+# 35.235.240.0/20 range). Off by default — no SSH path exists at all unless
+# you opt in. Also needs roles/iap.tunnelResourceAccessor + roles/compute.osLogin
+# granted to the operator IAM principal (instances already have OS Login enabled).
+# iap_ssh_enable = true
+
+# appserv fleet (arm64, Tau T2A).
+appserv_count         = 2
+appserv_machine_type  = "t2a-standard-2"
+
+# Admin DB. provision-sql creates Cloud SQL Postgres; byo uses admin_db_url instead.
+admin_db_mode             = "provision-sql"
+admin_db_provider_version = "POSTGRES_18"
+admin_db_url              = "" # set only when admin_db_mode = byo
+
+db_tier     = "db-custom-2-8192"
+db_disk_gb  = 100
+db_username = "mountos"
+# No db_password var: Cloud SQL has no AWS-managed-password equivalent — the
+# password is a Terraform value (random_password), stored in Secret Manager.
+# See rds.tf's PARITY GAP note. `terraform output admin_db_url` gives a
+# complete DSN — set ADMIN_DB_URL to it directly for `make bootstrap`.
+
+# Vault. self-hosted provisions a GCE raft node with gcpckms auto-unseal.
+# managed-byo uses vault_addr instead.
+vault_hosting      = "self-hosted"
+vault_addr         = "" # set only when vault_hosting = managed-byo
+vault_machine_type = "t2a-standard-2"
+
+# appserv AppRole from `make bootstrap`. secret_id is short-TTL; prefer Secret Manager/wrapped delivery.
+vault_role_id   = ""
+vault_secret_id = ""
+
+# mountOS package version. Empty installs latest.
+mos_version = ""
+
+# ---------- region (dataserv + co-located gcserv) ----------
+
+# Cluster UUID this region belongs to. Comes from the HUB provision step
+# (created via the Admin SDK after the hub is up). Not created here.
+region_cluster_id = "00000000-0000-0000-0000-000000000000"
+
+# VPC placement for region resources. shared (default): region lives in the
+# hub's network — simplest, no extra networking. dedicated: the region gets
+# its own VPC network in the SAME GCP project + region, peered to the hub
+# network. NOT covered: cross-project or cross-GCP-region regions (bigger
+# change — a second network peering/provider setup).
+region_vpc_mode         = "shared"
+region_vpc_cidr_public  = "10.1.0.0/24"  # used only when region_vpc_mode = dedicated
+region_vpc_cidr_private = "10.1.10.0/24" # used only when region_vpc_mode = dedicated
+
+# dataserv fleet (arm64). 1 per zone for raft quorum.
+dataserv_count         = 3
+dataserv_machine_type  = "t2a-standard-8"
+
+# METAENGINE_ARENA_SIZE unit string. ~5M files/GiB; prod is much larger.
+arena_size = "1GB"
+
+# Raft data disk (pd-ssd) at /mnt/raft. Ephemeral per instance; quorum re-syncs on replacement.
+raft_disk_gb = 100
+
+# Run gcserv co-located on each dataserv instance.
+gcserv_colocated = true
+
+# Region DB (mountos_data). provision-sql creates Cloud SQL Postgres; byo uses region_db_url.
+# Region has its own credentials, separate from the hub admin DB.
+region_db_mode             = "provision-sql"
+region_db_url              = "" # set only when region_db_mode = byo
+region_db_tier              = "db-custom-2-8192"
+region_db_disk_gb           = 100
+region_db_username          = "mountos"
+region_db_provider_version  = "POSTGRES_18"
+# No region_db_password var — see the admin DB note above; same parity gap.
+
+# Region Vault (separate from the hub Vault). self-hosted provisions a GCE raft
+# node with gcpckms auto-unseal against the region key. managed-byo uses region_vault_addr.
+region_vault_hosting      = "self-hosted"
+region_vault_addr         = "" # set only when region_vault_hosting = managed-byo
+region_vault_machine_type = "t2a-standard-2"
+
+# dataserv AppRole for the region Vault, from the region seed step.
+region_vault_role_id   = ""
+region_vault_secret_id = ""
+
+# ---------- blockserv (block data-plane) ----------
+
+# Opt-in; only needed for local-block backends. Its Vault keys are already seeded
+# by `make region-bootstrap` (unconditional); this only toggles running the fleet.
+# Reuses the region Vault AppRole above (blockserv reads mountos/blockserv under
+# the same mountos/data/* policy).
+block_enable = false
+
+# Active-active members of one block storage (up to 3, distinct zones). Each
+# block_volume_id is a block volume UUID from provisioning a block storage on the
+# hub via the Admin SDK; zone_index selects which zone the member lands in.
+block_members = [
+  # { block_volume_id = "00000000-0000-0000-0000-000000000000", zone_index = 0 },
+  # { block_volume_id = "11111111-1111-1111-1111-111111111111", zone_index = 1 },
+  # { block_volume_id = "22222222-2222-2222-2222-222222222222", zone_index = 2 },
+]
+
+# Network-optimized arm64 family and throughput-oriented cache disk per member.
+block_machine_type = "t2a-standard-8"
+block_cache_gb     = 500
+
+# ---------- hdfsserv / s3gatewayserv (protocol gateways) ----------
+
+# Opt-in and independent of each other. Both are stateless, cluster-wide
+# gateways (not tied to a storage type); their Vault keys are already seeded by
+# `make region-bootstrap` (unconditional). Reuses the region Vault AppRole above.
+hdfs_enable      = false
+hdfs_count       = 2
+s3gateway_enable = false
+s3gateway_count  = 2
