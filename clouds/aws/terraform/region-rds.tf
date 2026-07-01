@@ -3,7 +3,7 @@
 resource "aws_db_subnet_group" "region" {
   count      = local.region_provision_rds ? 1 : 0
   name       = "mountos-region"
-  subnet_ids = aws_subnet.private[*].id
+  subnet_ids = local.region_subnets[*].id
   tags       = { Name = "mountos-region" }
 }
 
@@ -11,7 +11,7 @@ resource "aws_security_group" "region_rds" {
   count       = local.region_provision_rds ? 1 : 0
   name        = "mountos-region-rds"
   description = "region RDS: postgres from dataserv only"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.region_vpc_id
   tags        = { Name = "mountos-region-rds" }
 }
 

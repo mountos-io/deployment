@@ -56,7 +56,7 @@ resource "aws_security_group" "region_vault" {
   count       = local.region_self_vault ? 1 : 0
   name        = "mountos-region-vault"
   description = "region vault: API 8200 from dataserv, raft 8201 self"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.region_vpc_id
   tags        = { Name = "mountos-region-vault" }
 }
 
@@ -92,7 +92,7 @@ resource "aws_instance" "region_vault" {
   count                  = local.region_self_vault ? 1 : 0
   ami                    = local.ami
   instance_type          = var.region_vault_instance_type
-  subnet_id              = aws_subnet.private[0].id
+  subnet_id              = local.region_subnets[0].id
   iam_instance_profile   = aws_iam_instance_profile.region_vault[0].name
   vpc_security_group_ids = [aws_security_group.region_vault[0].id]
 

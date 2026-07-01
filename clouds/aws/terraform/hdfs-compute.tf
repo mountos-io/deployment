@@ -93,7 +93,7 @@ resource "aws_autoscaling_group" "hdfsserv" {
   desired_capacity    = var.hdfs_count
   min_size            = var.hdfs_count
   max_size            = var.hdfs_count
-  vpc_zone_identifier = aws_subnet.private[*].id
+  vpc_zone_identifier = local.region_subnets[*].id
   health_check_type   = "EC2"
 
   launch_template {

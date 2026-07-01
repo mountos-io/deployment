@@ -93,7 +93,7 @@ resource "aws_autoscaling_group" "s3gatewayserv" {
   desired_capacity    = var.s3gateway_count
   min_size            = var.s3gateway_count
   max_size            = var.s3gateway_count
-  vpc_zone_identifier = aws_subnet.private[*].id
+  vpc_zone_identifier = local.region_subnets[*].id
   health_check_type   = "EC2"
 
   launch_template {

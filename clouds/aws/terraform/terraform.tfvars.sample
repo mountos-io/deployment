@@ -49,6 +49,15 @@ mos_version = ""
 # (created via the Admin SDK after the hub is up). Not created here.
 region_cluster_id = "00000000-0000-0000-0000-000000000000"
 
+# VPC placement for region resources. shared (default): region lives in the
+# hub's VPC — simplest, no extra networking. dedicated: the region gets its
+# own VPC in the SAME AWS account + AWS region, peered to the hub VPC. Use
+# dedicated for network-isolation/blast-radius separation between hub and
+# region. NOT covered: cross-account or cross-AWS-region regions (bigger
+# change — a second `aws` provider alias).
+region_vpc_mode = "shared"
+region_vpc_cidr = "10.1.0.0/16" # used only when region_vpc_mode = dedicated; must not overlap vpc_cidr
+
 # dataserv fleet (arm64). 1 per AZ for raft quorum.
 dataserv_count         = 3
 dataserv_instance_type = "r7g.2xlarge"

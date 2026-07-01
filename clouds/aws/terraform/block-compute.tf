@@ -54,7 +54,7 @@ resource "aws_iam_role_policy" "blockserv_secret_id" {
 # of the instance (delete_on_termination is moot for a detached volume).
 resource "aws_ebs_volume" "blockserv_cache" {
   for_each          = local.block_members_map
-  availability_zone = aws_subnet.private[each.value.az_index % length(aws_subnet.private)].availability_zone
+  availability_zone = local.region_subnets[each.value.az_index % length(local.region_subnets)].availability_zone
   size              = var.block_cache_gb
   type              = var.block_cache_type
   iops              = var.block_cache_iops
@@ -74,7 +74,7 @@ resource "aws_instance" "blockserv" {
   for_each               = local.block_members_map
   ami                    = local.ami
   instance_type          = var.block_instance_type
-  subnet_id              = aws_subnet.private[each.value.az_index % length(aws_subnet.private)].id
+  subnet_id              = local.region_subnets[each.value.az_index % length(local.region_subnets)].id
   iam_instance_profile   = aws_iam_instance_profile.blockserv[0].name
   vpc_security_group_ids = [aws_security_group.blockserv.id]
 

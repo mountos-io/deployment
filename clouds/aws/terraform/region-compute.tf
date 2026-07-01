@@ -102,7 +102,7 @@ resource "aws_autoscaling_group" "dataserv" {
   desired_capacity    = var.dataserv_count
   min_size            = var.dataserv_count
   max_size            = var.dataserv_count
-  vpc_zone_identifier = aws_subnet.private[*].id
+  vpc_zone_identifier = local.region_subnets[*].id
   health_check_type   = "EC2"
 
   launch_template {
