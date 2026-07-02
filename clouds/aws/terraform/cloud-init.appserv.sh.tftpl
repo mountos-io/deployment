@@ -15,18 +15,24 @@ install -d -m 0755 /etc/mountos
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/mountos/appserv-key.pem -out /etc/mountos/appserv-cert.pem -days 3650 -subj "/CN=appserv" -addext "subjectAltName=IP:$PRIV_IP"
 chmod 0600 /etc/mountos/appserv-key.pem
 
-# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
-# the node self-heals when Vault publishes it after boot. See the helper below.
+%{ if vault_provider == "hashicorp" ~}
+# byo Vault config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when the operator publishes it after boot. See the helper below.
+# CA param "-" skips the CA fetch: a byo Vault with a publicly-trusted
+# certificate needs no private CA (system CAs verify it).
 cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
 #!/bin/bash
 # ExecStartPre: (re)fetch the Vault CA + AppRole secret_id from SSM so the node
 # self-heals when Vault publishes them after boot. Non-zero exit -> systemd retries.
+# CA_PARAM "-" means the Vault serves a publicly-trusted cert; skip the CA fetch.
 set -euo pipefail
 CA_PARAM="$1"; SECRET_PARAM="$2"; SSM_REGION="$3"; SECRET_ENV="$4"
-CA_FILE=/etc/mountos/vault-ca.pem
-aws ssm get-parameter --name "$CA_PARAM" --region "$SSM_REGION" --query Parameter.Value --output text > "$CA_FILE" 2>/dev/null || true
-if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
-  echo "waiting for Vault CA $CA_PARAM" >&2; exit 1
+if [ "$CA_PARAM" != "-" ]; then
+  CA_FILE=/etc/mountos/vault-ca.pem
+  aws ssm get-parameter --name "$CA_PARAM" --region "$SSM_REGION" --query Parameter.Value --output text > "$CA_FILE" 2>/dev/null || true
+  if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+    echo "waiting for Vault CA $CA_PARAM" >&2; exit 1
+  fi
 fi
 SID="$(aws ssm get-parameter --name "$SECRET_PARAM" --with-decryption --region "$SSM_REGION" --query Parameter.Value --output text 2>/dev/null || true)"
 if [ -z "$SID" ] || [ "$SID" = "None" ]; then
@@ -36,12 +42,20 @@ umask 077
 printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
 EOF
 chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
+%{ endif ~}
 
 cat >/etc/mountos/appserv.env <<EOF
+%{ if vault_provider == "hashicorp" ~}
 VAULT_PROVIDER=hashicorp
 VAULT_HASHICORP_ADDRESS=${vault_addr}
 VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+%{ if vault_ca_source == "ssm" ~}
 VAULT_CACERT=/etc/mountos/vault-ca.pem
+%{ endif ~}
+%{ else ~}
+VAULT_PROVIDER=aws
+VAULT_AWS_REGION=${region}
+%{ endif ~}
 PORT=8080
 HTTPS_PORT=8443
 TLS_CERT_FILE=/etc/mountos/appserv-cert.pem
@@ -59,8 +73,10 @@ bash /tmp/mos-install.sh --pkg mountos-appserv --version ${mos_version}
 bash /tmp/mos-install.sh --pkg mountos-appserv
 %{ endif ~}
 
+%{ if vault_provider == "hashicorp" ~}
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
 install -m 0600 /dev/null /etc/mountos/appserv.secret.env
+%{ endif ~}
 
 cat >/etc/systemd/system/appserv.service <<EOF
 [Unit]
@@ -71,8 +87,10 @@ StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/mountos/appserv.env
+%{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/appserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh /mountos/hub/vault-ca /mountos/appserv/vault-secret-id ${region} /etc/mountos/appserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/mountos/hub/vault-ca%{ else }-%{ endif } /mountos/appserv/vault-secret-id ${region} /etc/mountos/appserv.secret.env
+%{ endif ~}
 ExecStartPre=/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
 Restart=always

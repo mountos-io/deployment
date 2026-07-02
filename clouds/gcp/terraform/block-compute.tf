@@ -59,11 +59,13 @@ resource "google_compute_instance" "blockserv" {
 
   metadata = {
     startup-script = templatefile("${path.module}/block-cloud-init.blockserv.sh.tftpl", {
-      vault_addr              = local.region_vault_endpoint
+      vault_provider          = var.region_vault_provider
+      vault_addr              = var.region_vault_addr
       vault_role_id           = var.region_vault_role_id
+      vault_ca_source         = local.region_vault_ca_source
       project_id              = var.project_id
-      region_vault_ca_secret  = google_secret_manager_secret.region_vault_ca.secret_id
-      region_secret_id_secret = google_secret_manager_secret.region_vault_secret_id.secret_id
+      region_vault_ca_secret  = local.region_vault_ca_secret_name
+      region_secret_id_secret = local.region_vault_secret_id_name
       region_cluster_id       = var.region_cluster_id
       srpc_addr               = "${google_compute_forwarding_rule.appserv_srpc.ip_address}:9443"
       advertise_addr          = google_compute_address.blockserv[each.key].address
@@ -79,7 +81,11 @@ resource "google_compute_instance" "blockserv" {
 
   depends_on = [
     google_secret_manager_secret_version.region_vault_secret_id,
-    google_secret_manager_secret_iam_member.blockserv_secret_id_reader,
-    google_secret_manager_secret_iam_member.blockserv_vault_ca_reader,
+    google_secret_manager_secret_iam_member.region_secret_id_reader,
+    google_secret_manager_secret_iam_member.region_vault_ca_reader,
+    google_secret_manager_secret_iam_member.worker_own_reader,
+    google_secret_manager_secret_iam_member.worker_verifiers_reader,
+    google_project_iam_member.worker_dynamic_reader,
+    google_project_iam_member.worker_secret_viewer,
   ]
 }

@@ -10,11 +10,15 @@ resource "random_password" "region_db" {
   override_special = "-_"
 }
 
+# Stored in the HUB Key Vault, not the region one: in azure secret-store mode
+# the region vault carries VAULT-SCOPED service grants (region-iam.tf), so an
+# operator-only credential there would be service-readable. The hub vault only
+# ever gets per-secret grants, keeping this out of every service's reach.
 resource "azurerm_key_vault_secret" "region_db_password" {
   count        = local.region_provision_pg ? 1 : 0
   name         = "mountos-region-db-password"
   value        = random_password.region_db[0].result
-  key_vault_id = azurerm_key_vault.region.id
+  key_vault_id = azurerm_key_vault.hub.id
 }
 
 # Delegated subnet + private DNS zone, in the SAME network as the region's
@@ -89,13 +93,4 @@ resource "azurerm_postgresql_flexible_server_configuration" "region_require_tls"
   name      = "require_secure_transport"
   server_id = azurerm_postgresql_flexible_server.region[0].id
   value     = "ON"
-}
-
-locals {
-  region_dsn = local.region_provision_pg ? "postgresql://${var.region_db_username}:${random_password.region_db[0].result}@${azurerm_postgresql_flexible_server.region[0].fqdn}/mountos_data?sslmode=require" : var.region_db_url
-}
-
-output "region_db_url" {
-  value     = local.region_dsn
-  sensitive = true
 }

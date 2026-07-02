@@ -1,16 +1,9 @@
-output "region_vault_addr" {
-  value = local.region_vault_endpoint
-}
+# No region_vault_addr output: aws provider needs none (Secrets Manager);
+# hashicorp provider's address is the operator-supplied var.region_vault_addr.
 
-# byo mode: the operator's DSN passes straight through. provision-rds mode:
-# null — the password is AWS-managed; use region_db_host + region_db_secret_arn
-# instead (region-seed.sh fetches the password from Secrets Manager and builds
-# the DSN itself, so it never appears in tfstate).
-output "region_db_url" {
-  value     = local.region_provision_rds ? null : var.region_db_url
-  sensitive = true
-}
-
+# No DSN output: a DSN is never a Terraform value (it would land in tfstate).
+# provision-rds: region-seed.sh builds it from region_db_host + region_db_secret_arn.
+# byo: the operator sets REGION_DB_URL in the region-seed environment.
 output "region_db_host" {
   value = local.region_provision_rds ? aws_db_instance.region[0].endpoint : null
 }

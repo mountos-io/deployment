@@ -4,7 +4,7 @@ set -euo pipefail
 apt-get update -y
 apt-get install -y curl jq openssl xfsprogs
 
-# dataserv reads service config from the region Vault at boot via AppRole.
+# dataserv reads service config from the region secret store at boot.
 # Only the bootstrap env below is written locally.
 
 # Raft data dir at /mnt/raft (ephemeral per instance). Azure managed disks get
@@ -28,28 +28,29 @@ mount -a
 # ADVERTISE_ADDR is the instance PUBLIC IPv4: dataserv is reached directly by
 # clients, no proxy. Requires the public subnet (a Public IP on the NIC).
 meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
-azure_token() {
-  meta "identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net&client_id=$1" | jq -r .access_token
-}
 PUB_IP="$(meta 'instance?api-version=2021-02-01' | jq -r '.network.interface[0].ipv4.ipAddress[0].publicIpAddress // empty')"
 [ -n "$PUB_IP" ] || { echo "IMDS returned empty public IP (is this instance's NIC configured with a Public IP?)" >&2; exit 1; }
 
 install -d -m 0755 /etc/mountos
 
-# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
-# the node self-heals when Vault publishes it after boot. See the helper below.
+%{ if vault_provider == "hashicorp" ~}
+# byo Vault config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when the operator publishes it after boot. See the helper below.
 cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
 #!/bin/bash
+# CA_SECRET "-" means the Vault serves a publicly-trusted cert; skip the CA fetch.
 set -euo pipefail
 VAULT_URI="$1"; CA_SECRET="$2"; SECRET_ID_SECRET="$3"; CLIENT_ID="$4"; SECRET_ENV="$5"
-CA_FILE=/etc/mountos/vault-ca.pem
 meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
 TOKEN="$(meta "identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net&client_id=$CLIENT_ID" | jq -r .access_token)"
-curl -fsSL -H "Authorization: Bearer $TOKEN" \
-  "$${VAULT_URI}secrets/$CA_SECRET?api-version=7.4" \
-  2>/dev/null | jq -r '.value // empty' > "$CA_FILE" 2>/dev/null || true
-if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
-  echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+if [ "$CA_SECRET" != "-" ]; then
+  CA_FILE=/etc/mountos/vault-ca.pem
+  curl -fsSL -H "Authorization: Bearer $TOKEN" \
+    "$${VAULT_URI}secrets/$CA_SECRET?api-version=7.4" \
+    2>/dev/null | jq -r '.value // empty' > "$CA_FILE" 2>/dev/null || true
+  if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+    echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+  fi
 fi
 SID="$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
   "$${VAULT_URI}secrets/$SECRET_ID_SECRET?api-version=7.4" \
@@ -61,12 +62,23 @@ umask 077
 printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
 EOF
 chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
+%{ endif ~}
 
 cat >/etc/mountos/dataserv.env <<EOF
+%{ if vault_provider == "hashicorp" ~}
 VAULT_PROVIDER=hashicorp
 VAULT_HASHICORP_ADDRESS=${vault_addr}
 VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+%{ if vault_ca_source == "kv" ~}
 VAULT_CACERT=/etc/mountos/vault-ca.pem
+%{ endif ~}
+%{ else ~}
+VAULT_PROVIDER=azure
+VAULT_AZURE_URL=${key_vault_uri}
+# Selects the VM's user-assigned identity for DefaultAzureCredential (IMDS
+# does not default to a user-assigned identity).
+AZURE_CLIENT_ID=${identity_client_id}
+%{ endif ~}
 REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 METAENGINE_ARENA_SIZE=${arena_size}
@@ -93,8 +105,10 @@ bash /tmp/mos-install.sh --pkg mountos-dataserv
 %{ endif ~}
 %{ endif ~}
 
+%{ if vault_provider == "hashicorp" ~}
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
 install -m 0600 /dev/null /etc/mountos/dataserv.secret.env
+%{ endif ~}
 
 cat >/etc/systemd/system/dataserv.service <<EOF
 [Unit]
@@ -105,8 +119,10 @@ StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/mountos/dataserv.env
+%{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} ${region_vault_ca_secret} ${region_secret_id_secret} ${identity_client_id} /etc/mountos/dataserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} %{ if vault_ca_source == "kv" }${region_vault_ca_secret}%{ else }-%{ endif } ${region_secret_id_secret} ${identity_client_id} /etc/mountos/dataserv.secret.env
+%{ endif ~}
 ExecStartPre=/usr/local/bin/dataserv db install
 ExecStart=/usr/local/bin/dataserv
 Restart=always
@@ -127,8 +143,10 @@ StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/mountos/dataserv.env
+%{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} ${region_vault_ca_secret} ${region_secret_id_secret} ${identity_client_id} /etc/mountos/dataserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} %{ if vault_ca_source == "kv" }${region_vault_ca_secret}%{ else }-%{ endif } ${region_secret_id_secret} ${identity_client_id} /etc/mountos/dataserv.secret.env
+%{ endif ~}
 ExecStart=/usr/local/bin/gcserv
 Restart=always
 RestartSec=10

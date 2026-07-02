@@ -17,8 +17,8 @@ resource "azurerm_linux_virtual_machine_scale_set" "hdfsserv" {
   zones               = var.zones
   admin_username      = "mosadmin"
 
-  # Trusted Launch + encryption-at-host: see vault.tf's resource for why this
-  # is safe (arm64 image is Gen2-only).
+  # Trusted Launch + encryption-at-host: see compute.tf's appserv resource for
+  # why this is safe (arm64 image is Gen2-only).
   secure_boot_enabled        = true
   vtpm_enabled               = true
   encryption_at_host_enabled = true
@@ -64,8 +64,10 @@ resource "azurerm_linux_virtual_machine_scale_set" "hdfsserv" {
   }
 
   custom_data = base64encode(templatefile("${path.module}/hdfs-cloud-init.hdfsserv.sh.tftpl", {
-    vault_addr              = local.region_vault_endpoint
+    vault_provider          = var.region_vault_provider
+    vault_addr              = var.region_vault_addr
     vault_role_id           = var.region_vault_role_id
+    vault_ca_source         = local.region_vault_ca_source
     key_vault_uri           = azurerm_key_vault.region.vault_uri
     region_vault_ca_secret  = "mountos-region-vault-ca"
     region_secret_id_secret = "mountos-region-vault-secret-id"
@@ -93,6 +95,9 @@ resource "azurerm_linux_virtual_machine_scale_set" "hdfsserv" {
 
   depends_on = [
     azurerm_key_vault_secret.region_vault_secret_id,
-    azurerm_role_assignment.hdfsserv_secrets_reader,
+    azurerm_key_vault_secret.region_vault_ca_byo,
+    azurerm_role_assignment.hdfsserv_ca_reader,
+    azurerm_role_assignment.hdfsserv_secret_id_reader,
+    azurerm_role_assignment.hdfsserv_secretstore,
   ]
 }

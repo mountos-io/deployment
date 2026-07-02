@@ -45,12 +45,6 @@ variable "region_db_mode" {
   }
 }
 
-variable "region_db_url" {
-  type        = string
-  description = "Full region DB DSN. Used only when region_db_mode = byo."
-  default     = ""
-}
-
 variable "region_db_sku" {
   type        = string
   description = "Region Postgres Flexible Server SKU (provision-pg mode)."
@@ -75,43 +69,56 @@ variable "region_db_provider_version" {
   default     = "18"
 }
 
-variable "region_vault_hosting" {
+# Region secret store; same model as the hub's (see variables.tf): azure =
+# cloud-native Key Vault (RECOMMENDED; region services read/write the region
+# Key Vault directly with their managed identities), hashicorp = byo Vault,
+# never launched.
+variable "region_vault_provider" {
   type        = string
-  description = "Region Vault hosting: self-hosted (provision a VM Vault) | managed-byo (use region_vault_addr)."
-  default     = "self-hosted"
+  description = "Region secret store: azure (cloud-native Key Vault, RECOMMENDED) | hashicorp (byo Vault via region_vault_addr; never launched by this package)."
+  default     = "azure"
   validation {
-    condition     = contains(["self-hosted", "managed-byo"], var.region_vault_hosting)
-    error_message = "region_vault_hosting must be self-hosted or managed-byo."
+    condition     = contains(["azure", "hashicorp"], var.region_vault_provider)
+    error_message = "region_vault_provider must be azure or hashicorp."
   }
 }
 
 variable "region_vault_addr" {
   type        = string
-  description = "External region Vault address. Used only when region_vault_hosting = managed-byo."
+  description = "byo region Vault address (https://...). Required when region_vault_provider = hashicorp."
+  default     = ""
+  validation {
+    condition     = var.region_vault_addr == "" || startswith(var.region_vault_addr, "https://")
+    error_message = "region_vault_addr must be an https:// URL — region services send AppRole credentials to it."
+  }
+}
+
+variable "region_vault_ca_pem" {
+  type        = string
+  description = "CA certificate PEM for a byo region Vault that serves a PRIVATE CA. Published to the region Key Vault so instances trust it. Leave empty when the byo Vault has a publicly-trusted certificate."
   default     = ""
 }
 
 variable "region_vault_role_id" {
   type        = string
-  description = "dataserv AppRole role_id for the region Vault (from the region seed step)."
+  description = "dataserv AppRole role_id for the byo region Vault (from the region seed step). hashicorp provider only."
   default     = ""
 }
 
 variable "region_vault_secret_id" {
   type        = string
-  description = "dataserv AppRole secret_id for the region Vault (short-TTL; prefer Key Vault/wrapped in real use)."
+  description = "dataserv AppRole secret_id for the byo region Vault (short-TTL; prefer Key Vault/wrapped in real use). hashicorp provider only."
   sensitive   = true
   default     = ""
 }
 
-variable "region_vault_vm_size" {
-  type        = string
-  description = "Azure VM size for the self-hosted region Vault node (arm64)."
-  default     = "Standard_D2ps_v5"
-}
-
 locals {
-  region_provision_pg   = var.region_db_mode == "provision-pg"
-  region_self_vault     = var.region_vault_hosting == "self-hosted"
-  region_vault_endpoint = local.region_self_vault ? "https://${azurerm_network_interface.region_vault[0].private_ip_address}:8200" : var.region_vault_addr
+  region_provision_pg = var.region_db_mode == "provision-pg"
+  region_hashicorp    = var.region_vault_provider == "hashicorp"
+  # See variables.tf's hub_vault_ca_source for the kv|system semantics.
+  region_vault_ca_source = var.region_vault_ca_pem != "" ? "kv" : "system"
+  # No DB DSN is EVER a Terraform value. provision-pg: region-seed.sh gets
+  # REGION_DB_URL built from region_db_host + the Key Vault password secret
+  # (region_db_secret_id output). byo: the operator sets REGION_DB_URL in the
+  # region-seed environment — Terraform neither needs nor stores it.
 }

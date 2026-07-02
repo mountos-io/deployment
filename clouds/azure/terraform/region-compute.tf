@@ -20,8 +20,8 @@ resource "azurerm_linux_virtual_machine_scale_set" "dataserv" {
   zones               = var.zones
   admin_username      = "mosadmin"
 
-  # Trusted Launch + encryption-at-host: see vault.tf's resource for why this
-  # is safe (arm64 image is Gen2-only).
+  # Trusted Launch + encryption-at-host: see compute.tf's appserv resource for
+  # why this is safe (arm64 image is Gen2-only).
   secure_boot_enabled        = true
   vtpm_enabled               = true
   encryption_at_host_enabled = true
@@ -79,8 +79,10 @@ resource "azurerm_linux_virtual_machine_scale_set" "dataserv" {
   }
 
   custom_data = base64encode(templatefile("${path.module}/region-cloud-init.dataserv.sh.tftpl", {
-    vault_addr              = local.region_vault_endpoint
+    vault_provider          = var.region_vault_provider
+    vault_addr              = var.region_vault_addr
     vault_role_id           = var.region_vault_role_id
+    vault_ca_source         = local.region_vault_ca_source
     key_vault_uri           = azurerm_key_vault.region.vault_uri
     region_vault_ca_secret  = "mountos-region-vault-ca"
     region_secret_id_secret = "mountos-region-vault-secret-id"
@@ -112,6 +114,20 @@ resource "azurerm_linux_virtual_machine_scale_set" "dataserv" {
 
   depends_on = [
     azurerm_key_vault_secret.region_vault_secret_id,
-    azurerm_role_assignment.dataserv_secrets_reader,
+    azurerm_key_vault_secret.region_vault_ca_byo,
+    azurerm_role_assignment.dataserv_ca_reader,
+    azurerm_role_assignment.dataserv_secret_id_reader,
+    azurerm_role_assignment.dataserv_secretstore,
   ]
+
+  lifecycle {
+    precondition {
+      condition     = !local.region_hashicorp || var.region_vault_addr != ""
+      error_message = "region_vault_provider = hashicorp requires region_vault_addr (the https address of your byo region Vault; this package never launches one)."
+    }
+    precondition {
+      condition     = local.region_hashicorp || (var.region_vault_addr == "" && var.region_vault_ca_pem == "" && var.region_vault_role_id == "")
+      error_message = "region_vault_addr/region_vault_ca_pem/region_vault_role_id are only for region_vault_provider = hashicorp — the azure provider uses Key Vault with managed identities."
+    }
+  }
 }

@@ -80,14 +80,8 @@ resource "aws_vpc_security_group_egress_rule" "gateway_all" {
 }
 
 # ---------- appserv ingress ----------
-resource "aws_vpc_security_group_ingress_rule" "appserv_https" {
-  security_group_id = aws_security_group.appserv.id
-  cidr_ipv4         = var.client_cidr
-  from_port         = 443
-  to_port           = 443
-  ip_protocol       = "tcp"
-  description       = "HTTPS Admin API + client discovery"
-}
+# (Clients terminate at the ALB on 443 — see lb.tf. The instances themselves
+# listen only on 8443 (from the ALB) and 9443 (SRPC), so no 443 rule here.)
 # SRPC 9443 (FIXED): region services register/heartbeat. In HA this sits behind an NLB TCP passthrough.
 # shared mode (default): SG-to-SG references, only valid within one VPC.
 resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_dataserv" {
@@ -136,6 +130,18 @@ resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_region_cidr" {
   to_port           = 9443
   ip_protocol       = "tcp"
   description       = "SRPC registration from the region VPC (dedicated mode)"
+}
+# NLB health checks reach instance targets from the NLB nodes' OWN private IPs
+# (not the client's), so the SG-to-SG rules above never match them — without
+# this rule every SRPC target stays permanently unhealthy. SRPC itself is
+# Noise/Ed25519-authenticated, so a VPC-wide TCP allow is acceptable here.
+resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_healthcheck" {
+  security_group_id = aws_security_group.appserv.id
+  cidr_ipv4         = var.vpc_cidr
+  from_port         = 9443
+  to_port           = 9443
+  ip_protocol       = "tcp"
+  description       = "SRPC health checks from the NLB nodes"
 }
 
 # ---------- dataserv ingress ----------

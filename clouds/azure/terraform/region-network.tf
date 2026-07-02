@@ -38,9 +38,8 @@ variable "region_vnet_cidr_private" {
 locals {
   region_dedicated_vnet = var.region_vpc_mode == "dedicated"
 
-  region_network        = local.region_dedicated_vnet ? azurerm_virtual_network.region[0].id : azurerm_virtual_network.main.id
-  region_public_subnet  = local.region_dedicated_vnet ? azurerm_subnet.region_public[0] : azurerm_subnet.public
-  region_private_subnet = local.region_dedicated_vnet ? azurerm_subnet.region_private[0] : azurerm_subnet.private
+  region_network       = local.region_dedicated_vnet ? azurerm_virtual_network.region[0].id : azurerm_virtual_network.main.id
+  region_public_subnet = local.region_dedicated_vnet ? azurerm_subnet.region_public[0] : azurerm_subnet.public
   # NSGs are resource-group-scoped, not VNet-bound — the same NSG applies
   # regardless of region_vpc_mode, wired per-NIC on each compute resource.
   region_nsg_id = azurerm_network_security_group.region.id

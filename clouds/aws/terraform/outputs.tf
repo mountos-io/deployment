@@ -10,19 +10,12 @@ output "nlb_dns" {
   value = aws_lb.appserv_srpc.dns_name
 }
 
-output "vault_addr" {
-  value = local.vault_endpoint
-}
+# No vault_addr output: aws provider needs none (Secrets Manager, instance
+# roles); hashicorp provider's address is the operator-supplied var.vault_addr.
 
-# byo mode: the operator's DSN passes straight through. provision-rds mode:
-# null — the password is AWS-managed; use admin_db_host + admin_db_secret_arn
-# instead (seed-vault.sh fetches the password from Secrets Manager and builds
-# the DSN itself, so it never appears in tfstate).
-output "admin_db_url" {
-  value     = local.provision_rds ? null : var.admin_db_url
-  sensitive = true
-}
-
+# No DSN output: a DSN is never a Terraform value (it would land in tfstate).
+# provision-rds: seed-vault.sh builds it from admin_db_host + admin_db_secret_arn.
+# byo: the operator sets ADMIN_DB_URL in answers.env for the seed step.
 output "admin_db_host" {
   value = local.provision_rds ? aws_db_instance.admin[0].endpoint : null
 }

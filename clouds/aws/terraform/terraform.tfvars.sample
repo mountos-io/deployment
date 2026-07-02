@@ -19,29 +19,47 @@ client_cidr = "203.0.113.0/24" # REPLACE with your operator/client CIDR
 appserv_count         = 2
 appserv_instance_type = "m7g.large"
 
-# Admin DB. provision-rds creates RDS Postgres; byo uses admin_db_url instead.
-admin_db_mode             = "provision-rds"
-admin_db_provider_version = "18" # PostgreSQL 18 (current latest)
-admin_db_url              = "" # set only when admin_db_mode = byo
+# Admin DB (PostgreSQL dialect). RECOMMENDED: byo — bring a managed HA
+# PostgreSQL you already operate (Aurora, RDS Multi-AZ, AlloyDB-compatible,
+# etc.); this package then provisions no DB and never holds your DSN (set
+# ADMIN_DB_URL in answers.env for `make bootstrap`; it is not a Terraform
+# variable, so it never lands in tfstate). provision-rds is the eval/simple
+# alternative: a Multi-AZ RDS Postgres with an AWS-managed master password.
+admin_db_mode             = "byo"
+admin_db_provider_version = "18" # PostgreSQL major version (byo: your server's)
 
+# provision-rds mode only:
 db_instance_class = "db.m7g.large"
 db_allocated_gb   = 100
 db_username       = "mountos"
 # No db_password var: provision-rds mode has AWS generate + rotate the master
 # password in Secrets Manager (never a Terraform value, never in tfstate).
 
-# Vault. self-hosted provisions an EC2 raft node with awskms auto-unseal.
-# managed-byo uses vault_addr instead.
-vault_hosting       = "self-hosted"
-vault_addr          = "" # set only when vault_hosting = managed-byo
-vault_instance_type = "t4g.medium"
+# Secret store. This package NEVER installs or launches HashiCorp Vault.
+#   aws (RECOMMENDED)  cloud-native Secrets Manager: platform-managed HA,
+#                      instance-role auth, `make bootstrap` seeds mountos/*.
+#   hashicorp          byo Vault (HCP Vault Dedicated or your own cluster):
+#                      set vault_addr; `make bootstrap` seeds it via the API.
+vault_provider = "aws"
+vault_addr     = "" # hashicorp only: https address of your byo Vault
+# hashicorp with a PRIVATE CA only: its CA PEM (published to SSM for instance
+# trust). Leave empty for a publicly-trusted certificate (HCP) — system CAs.
+vault_ca_pem = ""
 
-# appserv AppRole from `make bootstrap`. secret_id is short-TTL; prefer SSM/wrapped delivery.
+# hashicorp only: appserv AppRole from `make bootstrap`. secret_id is
+# short-TTL; prefer SSM/wrapped delivery.
 vault_role_id   = ""
 vault_secret_id = ""
 
 # mountOS package version. Empty installs latest.
 mos_version = ""
+
+# sha256 of the https://n.sh installer script; when set, cloud-init verifies
+# the download before executing it. Strongly recommended for production.
+mos_installer_sha256 = ""
+
+# Email for CloudWatch alarm notifications (SNS). Empty disables the subscription.
+alarm_email = ""
 
 # ---------- region (dataserv + co-located gcserv) ----------
 
@@ -73,23 +91,26 @@ raft_ebs_iops              = 3000
 # Run gcserv co-located on each dataserv instance.
 gcserv_colocated = true
 
-# Region DB (mountos_data). provision-rds creates RDS Postgres; byo uses region_db_url.
-# Region has its own credentials, separate from the hub admin DB.
-region_db_mode           = "provision-rds"
-region_db_url            = "" # set only when region_db_mode = byo
-region_db_instance_class = "db.m7g.large"
-region_db_allocated_gb   = 100
-region_db_username       = "mountos"
+# Region DB (mountos_data). RECOMMENDED: byo — bring a managed HA PostgreSQL
+# (separate database from the hub admin DB; may be a different server/engine
+# version). Set REGION_DB_URL in the `make region-bootstrap` environment; it is
+# never a Terraform value. provision-rds is the eval/simple alternative.
+region_db_mode           = "byo"
+region_db_instance_class = "db.m7g.large" # provision-rds mode only
+region_db_allocated_gb   = 100            # provision-rds mode only
+region_db_username       = "mountos"      # provision-rds mode only
 # No region_db_password var: provision-rds mode has AWS generate + rotate the
 # master password in Secrets Manager (never a Terraform value, never in tfstate).
 
-# Region Vault (separate from the hub Vault). self-hosted provisions an EC2 raft
-# node with awskms auto-unseal against the region CMK. managed-byo uses region_vault_addr.
-region_vault_hosting       = "self-hosted"
-region_vault_addr          = "" # set only when region_vault_hosting = managed-byo
-region_vault_instance_type = "t4g.medium"
+# Region secret store; same model as the hub's. aws (RECOMMENDED): hub and
+# region share the account's mountos/* Secrets Manager namespace, isolated by
+# IAM (appserv can never read api-master; region services can never read the
+# appserv secret). hashicorp: byo region Vault (never launched).
+region_vault_provider = "aws"
+region_vault_addr     = "" # hashicorp only: https address
+region_vault_ca_pem   = "" # hashicorp with a private CA only; empty = system CAs
 
-# dataserv AppRole for the region Vault, from the region seed step.
+# hashicorp only: dataserv AppRole for the byo region Vault, from the region seed step.
 region_vault_role_id   = ""
 region_vault_secret_id = ""
 

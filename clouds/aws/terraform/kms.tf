@@ -1,15 +1,11 @@
-# Per-scope CMKs. Each backs its scope's Vault auto-unseal (and enforces isolation:
-# a region node's role can decrypt only the region CMK, never the hub CMK).
+# Per-scope CMKs backing the SSM SecureString params that carry the AppRole
+# secret_ids in hashicorp (byo Vault) mode. Isolation: a region node's role can
+# decrypt only the region CMK, never the hub CMK. In aws (Secrets Manager)
+# mode the params don't exist and these keys sit unused (kept: prevent_destroy,
+# and provider switches must not churn KMS).
 
 locals {
   account_root_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-  kms_vault_actions = [
-    "kms:Encrypt",
-    "kms:Decrypt",
-    "kms:DescribeKey",
-    "kms:GenerateDataKey",
-    "kms:ReEncrypt*",
-  ]
 
   # Roles that read region-scoped SSM SecureString params (region_vault_secret_id,
   # region_vault_ca), gated the same way their own aws_iam_role resources are.
@@ -21,9 +17,8 @@ locals {
   ])
 }
 
-# Explicit key policy: root retains full administration; the scope's Vault role
-# (when self-hosted) gets only unseal-grade crypto. Without this AWS defaults to
-# account-wide kms:* for any principal with KMS permissions.
+# Explicit key policy: root retains full administration. Without this AWS
+# defaults to account-wide kms:* for any principal with KMS permissions.
 data "aws_iam_policy_document" "hub_key" {
   statement {
     sid       = "RootAdmin"
@@ -32,18 +27,6 @@ data "aws_iam_policy_document" "hub_key" {
     principals {
       type        = "AWS"
       identifiers = [local.account_root_arn]
-    }
-  }
-  dynamic "statement" {
-    for_each = local.self_vault ? [1] : []
-    content {
-      sid       = "VaultUse"
-      actions   = local.kms_vault_actions
-      resources = ["*"]
-      principals {
-        type        = "AWS"
-        identifiers = [aws_iam_role.vault[0].arn]
-      }
     }
   }
   # appserv reads /mountos/appserv/vault-secret-id + /mountos/hub/vault-ca
@@ -66,7 +49,7 @@ data "aws_iam_policy_document" "hub_key" {
 }
 
 resource "aws_kms_key" "hub" {
-  description             = "mountOS hub vault auto-unseal"
+  description             = "mountOS hub secret-delivery (SSM SecureString) encryption"
   deletion_window_in_days = 30
   enable_key_rotation     = true
   policy                  = data.aws_iam_policy_document.hub_key.json
@@ -92,18 +75,6 @@ data "aws_iam_policy_document" "region_key" {
       identifiers = [local.account_root_arn]
     }
   }
-  dynamic "statement" {
-    for_each = local.region_self_vault ? [1] : []
-    content {
-      sid       = "VaultUse"
-      actions   = local.kms_vault_actions
-      resources = ["*"]
-      principals {
-        type        = "AWS"
-        identifiers = [aws_iam_role.region_vault[0].arn]
-      }
-    }
-  }
   # dataserv/blockserv/hdfsserv/s3gatewayserv (whichever are enabled) read
   # /mountos/region/vault-secret-id + /mountos/region/vault-ca, SecureString-
   # encrypted with this CMK — decrypt-only, and only reachable via SSM.
@@ -124,7 +95,7 @@ data "aws_iam_policy_document" "region_key" {
 }
 
 resource "aws_kms_key" "region" {
-  description             = "mountOS region vault auto-unseal"
+  description             = "mountOS region secret-delivery (SSM SecureString) encryption"
   deletion_window_in_days = 30
   enable_key_rotation     = true
   policy                  = data.aws_iam_policy_document.region_key.json

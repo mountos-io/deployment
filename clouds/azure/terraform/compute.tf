@@ -7,8 +7,12 @@ resource "azurerm_linux_virtual_machine_scale_set" "appserv" {
   zones               = var.zones
   admin_username      = "mosadmin"
 
-  # Trusted Launch + encryption-at-host: see vault.tf's resource for why this
-  # is safe (arm64 image is Gen2-only).
+  # Trusted Launch (secure boot + vTPM) + encryption-at-host: safe here since
+  # the arm64 image (data.tf's local.image_reference) is Gen2-only by
+  # construction — Azure has no Gen1 path for Arm64 VMs at all, so image-
+  # generation compatibility isn't a live risk the way it would be for an
+  # x86 image that could resolve to either generation. The other fleets
+  # reference this rationale.
   secure_boot_enabled        = true
   vtpm_enabled               = true
   encryption_at_host_enabled = true
@@ -52,8 +56,10 @@ resource "azurerm_linux_virtual_machine_scale_set" "appserv" {
   }
 
   custom_data = base64encode(templatefile("${path.module}/cloud-init.appserv.sh.tftpl", {
-    vault_addr               = local.vault_endpoint
+    vault_provider           = var.vault_provider
+    vault_addr               = var.vault_addr
     vault_role_id            = var.vault_role_id
+    vault_ca_source          = local.hub_vault_ca_source
     key_vault_uri            = azurerm_key_vault.hub.vault_uri
     hub_vault_ca_secret      = "mountos-hub-vault-ca"
     appserv_secret_id_secret = "mountos-appserv-vault-secret-id"
@@ -77,12 +83,28 @@ resource "azurerm_linux_virtual_machine_scale_set" "appserv" {
 
   health_probe_id = azurerm_lb_probe.appserv_health.id
 
-  # Both the secret's existence AND the RBAC grant to read it: Key Vault role
-  # assignments have a documented eventual-consistency propagation window, so
-  # this ordering doesn't guarantee no race, but it does guarantee the grant
-  # is at least submitted before boot starts (ExecStartPre retries on 403).
+  # Both the secrets' existence AND the RBAC grants to read them (whichever
+  # provider mode instantiates them): Key Vault role assignments have a
+  # documented eventual-consistency propagation window, so this ordering
+  # doesn't guarantee no race, but it does guarantee the grant is at least
+  # submitted before boot starts (hashicorp: ExecStartPre retries on 403;
+  # azure: the service's own store retry loop does).
   depends_on = [
     azurerm_key_vault_secret.appserv_vault_secret_id,
-    azurerm_role_assignment.appserv_secrets_reader,
+    azurerm_key_vault_secret.hub_vault_ca_byo,
+    azurerm_role_assignment.appserv_ca_reader,
+    azurerm_role_assignment.appserv_secret_id_reader,
+    azurerm_role_assignment.appserv_secretstore,
   ]
+
+  lifecycle {
+    precondition {
+      condition     = !local.hub_hashicorp || var.vault_addr != ""
+      error_message = "vault_provider = hashicorp requires vault_addr (the https address of your byo Vault; this package never launches one)."
+    }
+    precondition {
+      condition     = local.hub_hashicorp || (var.vault_addr == "" && var.vault_ca_pem == "" && var.vault_role_id == "")
+      error_message = "vault_addr/vault_ca_pem/vault_role_id are only for vault_provider = hashicorp — the azure provider uses Key Vault with managed identities."
+    }
+  }
 }

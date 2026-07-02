@@ -30,9 +30,9 @@ locals {
   region_public_cidrs  = ["10.1.0.0/24", "10.1.1.0/24", "10.1.2.0/24"]
   region_private_cidrs = ["10.1.10.0/24", "10.1.11.0/24", "10.1.12.0/24"]
 
-  # Region-scoped resources (SGs, RDS, Vault) attach to these instead of
+  # Region-scoped resources (SGs, RDS) attach to these instead of
   # aws_vpc.main / aws_subnet.private so they land in the right VPC in either
-  # mode. Backend-only (region RDS, region Vault) stay on the PRIVATE ones.
+  # mode. Backend-only (region RDS) stays on the PRIVATE ones.
   region_vpc_id  = local.region_dedicated_vpc ? aws_vpc.region[0].id : aws_vpc.main.id
   region_subnets = local.region_dedicated_vpc ? aws_subnet.region_private : aws_subnet.private
 
@@ -119,10 +119,10 @@ resource "aws_nat_gateway" "region_nat" {
 }
 
 # One private route table per AZ: NAT egress (if enabled) plus a route back to
-# the hub VPC over the peering connection. Only region RDS + region Vault live
-# here now (dataserv/blockserv/hdfsserv/s3gatewayserv moved to region_public
-# for their public-IP requirement) — this route is currently unused by them
-# but harmless to keep for any future private-subnet resource that needs it.
+# the hub VPC over the peering connection. Only region RDS lives here now
+# (dataserv/blockserv/hdfsserv/s3gatewayserv sit in region_public for their
+# public-IP requirement) — the hub route is currently unused but harmless to
+# keep for any future private-subnet resource that needs it.
 resource "aws_route_table" "region_private" {
   count  = local.region_dedicated_vpc ? length(aws_subnet.region_private) : 0
   vpc_id = aws_vpc.region[0].id

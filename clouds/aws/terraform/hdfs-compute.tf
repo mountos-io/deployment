@@ -68,8 +68,10 @@ resource "aws_launch_template" "hdfsserv" {
   }
 
   user_data = base64encode(templatefile("${path.module}/hdfs-cloud-init.hdfsserv.sh.tftpl", {
-    vault_addr           = local.region_vault_endpoint
+    vault_provider       = var.region_vault_provider
+    vault_addr           = var.region_vault_addr
     vault_role_id        = var.region_vault_role_id
+    vault_ca_source      = local.region_vault_ca_source
     region               = var.region
     region_cluster_id    = var.region_cluster_id
     srpc_addr            = "${aws_lb.appserv_srpc.dns_name}:9443"

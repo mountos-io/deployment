@@ -76,8 +76,10 @@ resource "aws_launch_template" "dataserv" {
   }
 
   user_data = base64encode(templatefile("${path.module}/region-cloud-init.dataserv.sh.tftpl", {
-    vault_addr           = local.region_vault_endpoint
+    vault_provider       = var.region_vault_provider
+    vault_addr           = var.region_vault_addr
     vault_role_id        = var.region_vault_role_id
+    vault_ca_source      = local.region_vault_ca_source
     region               = var.region
     region_cluster_id    = var.region_cluster_id
     srpc_addr            = "${aws_lb.appserv_srpc.dns_name}:9443"
@@ -93,6 +95,17 @@ resource "aws_launch_template" "dataserv" {
   }
 
   tags = { Name = "mountos-dataserv" }
+
+  lifecycle {
+    precondition {
+      condition     = !local.region_hashicorp || var.region_vault_addr != ""
+      error_message = "region_vault_provider = hashicorp requires region_vault_addr (the https address of your byo region Vault; this package never launches one)."
+    }
+    precondition {
+      condition     = local.region_hashicorp || (var.region_vault_addr == "" && var.region_vault_ca_pem == "" && var.region_vault_role_id == "" && var.region_vault_secret_id == "")
+      error_message = "region_vault_addr/region_vault_ca_pem/region_vault_role_id/region_vault_secret_id are only for region_vault_provider = hashicorp — the aws provider uses Secrets Manager with instance roles."
+    }
+  }
 }
 
 # health_check_type EC2 (not ELB): dataserv is not behind the hub LBs. Raft quorum

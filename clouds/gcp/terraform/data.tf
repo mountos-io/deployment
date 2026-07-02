@@ -1,4 +1,10 @@
-# Image for appserv, dataserv, blockserv, and the self-hosted Vault nodes.
+# Project lookup: Secret Manager IAM conditions match on resource names that
+# carry the project NUMBER, not the id (region-iam.tf).
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+# Image for appserv, dataserv, blockserv, and the gateway nodes.
 # Default: look up the latest Debian 12 arm64. Set var.machine_image to PIN a
 # specific image (family or full self_link) for reproducible/production rollouts.
 variable "machine_image" {

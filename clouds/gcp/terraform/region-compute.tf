@@ -1,5 +1,5 @@
 # dataserv fleet (+ co-located gcserv). Registers with the hub over SRPC at the
-# hub internal LB; reaches the region Vault over the network (no KMS on dataserv).
+# hub internal LB; reads its config from the region secret store at boot.
 # PUBLIC subnet: dataserv advertises a public IPv4 (see region-cloud-init).
 
 resource "google_compute_instance_template" "dataserv" {
@@ -43,11 +43,13 @@ resource "google_compute_instance_template" "dataserv" {
 
   metadata = {
     startup-script = templatefile("${path.module}/region-cloud-init.dataserv.sh.tftpl", {
-      vault_addr              = local.region_vault_endpoint
+      vault_provider          = var.region_vault_provider
+      vault_addr              = var.region_vault_addr
       vault_role_id           = var.region_vault_role_id
+      vault_ca_source         = local.region_vault_ca_source
       project_id              = var.project_id
-      region_vault_ca_secret  = google_secret_manager_secret.region_vault_ca.secret_id
-      region_secret_id_secret = google_secret_manager_secret.region_vault_secret_id.secret_id
+      region_vault_ca_secret  = local.region_vault_ca_secret_name
+      region_secret_id_secret = local.region_vault_secret_id_name
       region_cluster_id       = var.region_cluster_id
       srpc_addr               = "${google_compute_forwarding_rule.appserv_srpc.ip_address}:9443"
       arena_size              = var.arena_size
@@ -62,6 +64,15 @@ resource "google_compute_instance_template" "dataserv" {
 
   lifecycle {
     create_before_destroy = true
+
+    precondition {
+      condition     = !local.region_hashicorp || var.region_vault_addr != ""
+      error_message = "region_vault_provider = hashicorp requires region_vault_addr (the https address of your byo region Vault; this package never launches one)."
+    }
+    precondition {
+      condition     = local.region_hashicorp || (var.region_vault_addr == "" && var.region_vault_ca_pem == "" && var.region_vault_role_id == "")
+      error_message = "region_vault_addr/region_vault_ca_pem/region_vault_role_id are only for region_vault_provider = hashicorp — the gcp provider uses Secret Manager with instance service accounts."
+    }
   }
 }
 
@@ -106,9 +117,19 @@ resource "google_compute_region_instance_group_manager" "dataserv" {
     max_unavailable_fixed = 0
   }
 
+  # IAM member bindings are eventually consistent; submit the grants before the
+  # fleet boots so ExecStartPre / SDK reads aren't racing a cold 403.
   depends_on = [
     google_secret_manager_secret_version.region_vault_secret_id,
-    google_secret_manager_secret_iam_member.dataserv_secret_id_reader,
-    google_secret_manager_secret_iam_member.dataserv_vault_ca_reader,
+    google_secret_manager_secret_iam_member.region_secret_id_reader,
+    google_secret_manager_secret_iam_member.region_vault_ca_reader,
+    google_secret_manager_secret_iam_member.dataserv_own_reader,
+    google_secret_manager_secret_iam_member.dataserv_gcserv_reader,
+    google_secret_manager_secret_iam_member.dataserv_verifiers_reader,
+    google_secret_manager_secret_iam_member.dataserv_api_master_reader,
+    google_secret_manager_secret_iam_member.dataserv_api_master_writer,
+    google_project_iam_member.dataserv_secret_creator,
+    google_project_iam_member.dataserv_dynamic_writer,
+    google_project_iam_member.dataserv_secret_viewer,
   ]
 }

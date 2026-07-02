@@ -27,31 +27,50 @@ client_cidr = "203.0.113.0/24" # REPLACE with your operator/client CIDR
 appserv_count         = 2
 appserv_machine_type  = "t2a-standard-2"
 
-# Admin DB. provision-sql creates Cloud SQL Postgres; byo uses admin_db_url instead.
-admin_db_mode             = "provision-sql"
-admin_db_provider_version = "POSTGRES_18"
-admin_db_url              = "" # set only when admin_db_mode = byo
+# Admin DB (PostgreSQL dialect). RECOMMENDED: byo — bring a managed HA
+# PostgreSQL you already operate (Cloud SQL HA, AlloyDB, etc.); this package
+# then provisions no DB and never holds your DSN (set ADMIN_DB_URL in
+# answers.env for `make bootstrap`; it is not a Terraform variable, so it
+# never lands in tfstate). provision-sql is the eval/simple alternative: a
+# regional Cloud SQL Postgres whose password is a Terraform value
+# (random_password, stored in Secret Manager — see rds.tf's PARITY GAP note).
+admin_db_mode             = "byo"
+admin_db_provider_version = "POSTGRES_18" # byo: your server's major version
 
+# provision-sql mode only:
 db_tier     = "db-custom-2-8192"
 db_disk_gb  = 100
 db_username = "mountos"
-# No db_password var: Cloud SQL has no AWS-managed-password equivalent — the
-# password is a Terraform value (random_password), stored in Secret Manager.
-# See rds.tf's PARITY GAP note. `terraform output admin_db_url` gives a
-# complete DSN — set ADMIN_DB_URL to it directly for `make bootstrap`.
+# No db_password var. Build ADMIN_DB_URL for `make bootstrap` from
+# `terraform output admin_db_host` + the admin_db_password_secret secret
+# (`gcloud secrets versions access latest --secret=mountos-admin-db-password`).
 
-# Vault. self-hosted provisions a GCE raft node with gcpckms auto-unseal.
-# managed-byo uses vault_addr instead.
-vault_hosting      = "self-hosted"
-vault_addr         = "" # set only when vault_hosting = managed-byo
-vault_machine_type = "t2a-standard-2"
+# Secret store. This package NEVER installs or launches HashiCorp Vault.
+#   gcp (RECOMMENDED)  cloud-native Secret Manager: platform-managed HA,
+#                      instance service-account auth, `make bootstrap` seeds mountos__*.
+#   hashicorp          byo Vault (HCP Vault Dedicated or your own cluster):
+#                      set vault_addr; `make bootstrap` seeds it via the API.
+vault_provider = "gcp"
+vault_addr     = "" # hashicorp only: https address of your byo Vault
+# hashicorp with a PRIVATE CA only: its CA PEM (published to Secret Manager
+# for instance trust). Leave empty for a publicly-trusted certificate (HCP) —
+# system CAs.
+vault_ca_pem = ""
 
-# appserv AppRole from `make bootstrap`. secret_id is short-TTL; prefer Secret Manager/wrapped delivery.
+# hashicorp only: appserv AppRole from `make bootstrap`. secret_id is
+# short-TTL; prefer Secret Manager/wrapped delivery.
 vault_role_id   = ""
 vault_secret_id = ""
 
 # mountOS package version. Empty installs latest.
 mos_version = ""
+
+# sha256 of the https://n.sh installer script; when set, cloud-init verifies
+# the download before executing it. Strongly recommended for production.
+mos_installer_sha256 = ""
+
+# Email for Cloud Monitoring alert notifications. Empty disables the channel.
+alarm_email = ""
 
 # ---------- region (dataserv + co-located gcserv) ----------
 
@@ -64,9 +83,8 @@ region_cluster_id = "00000000-0000-0000-0000-000000000000"
 # its own VPC network in the SAME GCP project + region, peered to the hub
 # network. NOT covered: cross-project or cross-GCP-region regions (bigger
 # change — a second network peering/provider setup).
-region_vpc_mode         = "shared"
-region_vpc_cidr_public  = "10.1.0.0/24"  # used only when region_vpc_mode = dedicated
-region_vpc_cidr_private = "10.1.10.0/24" # used only when region_vpc_mode = dedicated
+region_vpc_mode        = "shared"
+region_vpc_cidr_public = "10.1.0.0/24" # used only when region_vpc_mode = dedicated
 
 # dataserv fleet (arm64). 1 per zone for raft quorum.
 dataserv_count         = 3
@@ -81,23 +99,27 @@ raft_disk_gb = 100
 # Run gcserv co-located on each dataserv instance.
 gcserv_colocated = true
 
-# Region DB (mountos_data). provision-sql creates Cloud SQL Postgres; byo uses region_db_url.
-# Region has its own credentials, separate from the hub admin DB.
-region_db_mode             = "provision-sql"
-region_db_url              = "" # set only when region_db_mode = byo
-region_db_tier              = "db-custom-2-8192"
-region_db_disk_gb           = 100
-region_db_username          = "mountos"
-region_db_provider_version  = "POSTGRES_18"
-# No region_db_password var — see the admin DB note above; same parity gap.
+# Region DB (mountos_data). RECOMMENDED: byo — bring a managed HA PostgreSQL
+# (separate database from the hub admin DB; may be a different server/engine
+# version). Set REGION_DB_URL in the `make region-bootstrap` environment; it is
+# never a Terraform value. provision-sql is the eval/simple alternative (build
+# REGION_DB_URL from region_db_host + region_db_password_secret — see the
+# admin DB note above; same parity gap).
+region_db_mode             = "byo"
+region_db_tier             = "db-custom-2-8192" # provision-sql mode only
+region_db_disk_gb          = 100                # provision-sql mode only
+region_db_username         = "mountos"          # provision-sql mode only
+region_db_provider_version = "POSTGRES_18"
 
-# Region Vault (separate from the hub Vault). self-hosted provisions a GCE raft
-# node with gcpckms auto-unseal against the region key. managed-byo uses region_vault_addr.
-region_vault_hosting      = "self-hosted"
-region_vault_addr         = "" # set only when region_vault_hosting = managed-byo
-region_vault_machine_type = "t2a-standard-2"
+# Region secret store; same model as the hub's. gcp (RECOMMENDED): hub and
+# region share the project's mountos__* Secret Manager namespace, isolated by
+# IAM (appserv can never read api-master; region services can never read the
+# appserv secret). hashicorp: byo region Vault (never launched).
+region_vault_provider = "gcp"
+region_vault_addr     = "" # hashicorp only: https address
+region_vault_ca_pem   = "" # hashicorp with a private CA only; empty = system CAs
 
-# dataserv AppRole for the region Vault, from the region seed step.
+# hashicorp only: dataserv AppRole for the byo region Vault, from the region seed step.
 region_vault_role_id   = ""
 region_vault_secret_id = ""
 

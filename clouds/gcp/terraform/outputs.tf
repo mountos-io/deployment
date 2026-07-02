@@ -1,11 +1,3 @@
-locals {
-  # Unlike AWS (manage_master_user_password keeps the password out of
-  # Terraform entirely), Cloud SQL's password IS a Terraform value here (see
-  # rds.tf's PARITY GAP note) — so, unlike AWS, a full DSN CAN be constructed
-  # directly, no separate host+secret split needed.
-  admin_dsn = local.provision_sql ? "postgresql://${var.db_username}:${random_password.admin_db[0].result}@${google_sql_database_instance.admin[0].private_ip_address}/mountos_admin?sslmode=require" : var.admin_db_url
-}
-
 output "hub_url" {
   value = "https://${var.hub_domain}"
 }
@@ -14,13 +6,18 @@ output "lb_ip" {
   value = google_compute_global_address.appserv.address
 }
 
-output "vault_addr" {
-  value = local.vault_endpoint
+# No DSN output: a DSN is never a Terraform value (it would land in tfstate —
+# and it already does via random_password, see rds.tf's PARITY GAP note; this
+# at least keeps it out of the outputs). provision-sql: the operator builds
+# ADMIN_DB_URL from admin_db_host + the admin_db_password_secret secret
+# (`gcloud secrets versions access latest --secret=<name>`) for `make bootstrap`.
+# byo: the operator sets ADMIN_DB_URL in answers.env for the seed step.
+output "admin_db_host" {
+  value = local.provision_sql ? google_sql_database_instance.admin[0].private_ip_address : null
 }
 
-output "admin_db_url" {
-  value     = local.admin_dsn
-  sensitive = true
+output "admin_db_password_secret" {
+  value = local.provision_sql ? google_secret_manager_secret.admin_db_password[0].secret_id : null
 }
 
 output "project_id" {

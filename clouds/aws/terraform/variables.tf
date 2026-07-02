@@ -48,12 +48,6 @@ variable "admin_db_provider_version" {
   default     = "18"
 }
 
-variable "admin_db_url" {
-  type        = string
-  description = "Full admin DB DSN. Used only when admin_db_mode = byo."
-  default     = ""
-}
-
 variable "db_instance_class" {
   type        = string
   description = "RDS instance class (provision-rds mode)."
@@ -72,39 +66,52 @@ variable "db_username" {
   default     = "mountos"
 }
 
-variable "vault_hosting" {
+# Secret store. This package NEVER installs or launches HashiCorp Vault (BSL:
+# packaging a product so Vault must be downloaded for it to operate is
+# "embedded" use). Two supported providers:
+#   aws (RECOMMENDED)  cloud-native AWS Secrets Manager — platform-managed HA,
+#                      instance-role auth, no AppRole/CA machinery; the seed
+#                      scripts write the initial mountos/* secrets.
+#   hashicorp (byo)    the operator brings a Vault (HCP Vault Dedicated or
+#                      their own cluster) and supplies vault_addr; the seed
+#                      scripts only create mounts/policies/AppRole/values.
+variable "vault_provider" {
   type        = string
-  description = "Vault hosting: self-hosted (provision an EC2 Vault) | managed-byo (use vault_addr)."
-  default     = "self-hosted"
+  description = "Secret store: aws (cloud-native Secrets Manager, RECOMMENDED) | hashicorp (byo Vault via vault_addr; never launched by this package)."
+  default     = "aws"
   validation {
-    condition     = contains(["self-hosted", "managed-byo"], var.vault_hosting)
-    error_message = "vault_hosting must be self-hosted or managed-byo."
+    condition     = contains(["aws", "hashicorp"], var.vault_provider)
+    error_message = "vault_provider must be aws or hashicorp."
   }
 }
 
 variable "vault_addr" {
   type        = string
-  description = "External Vault address. Used only when vault_hosting = managed-byo."
+  description = "byo Vault address (https://...). Required when vault_provider = hashicorp."
+  default     = ""
+  validation {
+    condition     = var.vault_addr == "" || startswith(var.vault_addr, "https://")
+    error_message = "vault_addr must be an https:// URL — appserv sends AppRole credentials to it."
+  }
+}
+
+variable "vault_ca_pem" {
+  type        = string
+  description = "CA certificate PEM for a byo Vault that serves a PRIVATE CA. Published to SSM so instances trust it. Leave empty when the byo Vault has a publicly-trusted certificate (system CAs are used)."
   default     = ""
 }
 
 variable "vault_role_id" {
   type        = string
-  description = "appserv AppRole role_id (from `make bootstrap`)."
+  description = "appserv AppRole role_id (from `make bootstrap`). hashicorp provider only."
   default     = ""
 }
 
 variable "vault_secret_id" {
   type        = string
-  description = "appserv AppRole secret_id (short-TTL; prefer SSM/wrapped in real use)."
+  description = "appserv AppRole secret_id (short-TTL; prefer SSM/wrapped in real use). hashicorp provider only."
   sensitive   = true
   default     = ""
-}
-
-variable "vault_instance_type" {
-  type        = string
-  description = "EC2 instance type for the self-hosted Vault node (arm64)."
-  default     = "t4g.medium"
 }
 
 variable "alarm_email" {
@@ -138,10 +145,14 @@ variable "hub_certificate_arn" {
 }
 
 locals {
-  provision_rds  = var.admin_db_mode == "provision-rds"
-  self_vault     = var.vault_hosting == "self-hosted"
-  vault_endpoint = local.self_vault ? "https://${aws_instance.vault[0].private_ip}:8200" : var.vault_addr
-  # provision-rds: AWS manages the master password (Secrets Manager), so no DSN
-  # is constructible here — seed-vault.sh builds it from admin_db_host +
-  # admin_db_secret_arn. byo: the operator's DSN passes straight through.
+  provision_rds = var.admin_db_mode == "provision-rds"
+  hub_hashicorp = var.vault_provider == "hashicorp"
+  # ssm: instances fetch the byo Vault's private CA from SSM (published by
+  # Terraform from vault_ca_pem). system: byo Vault with a publicly-trusted
+  # cert — no CA fetch, no VAULT_CACERT. Unused by the aws provider.
+  hub_vault_ca_source = var.vault_ca_pem != "" ? "ssm" : "system"
+  # No DB DSN is EVER a Terraform value. provision-rds: AWS manages the master
+  # password (Secrets Manager) and seed-vault.sh builds the DSN from
+  # admin_db_host + admin_db_secret_arn. byo: the operator sets ADMIN_DB_URL in
+  # answers.env for the seed step — Terraform neither needs nor stores it.
 }

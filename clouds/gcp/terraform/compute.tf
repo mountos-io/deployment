@@ -31,11 +31,13 @@ resource "google_compute_instance_template" "appserv" {
 
   metadata = {
     startup-script = templatefile("${path.module}/cloud-init.appserv.sh.tftpl", {
-      vault_addr               = local.vault_endpoint
+      vault_provider           = var.vault_provider
+      vault_addr               = var.vault_addr
       vault_role_id            = var.vault_role_id
+      vault_ca_source          = local.hub_vault_ca_source
       project_id               = var.project_id
-      hub_vault_ca_secret      = google_secret_manager_secret.hub_vault_ca.secret_id
-      appserv_secret_id_secret = google_secret_manager_secret.appserv_vault_secret_id.secret_id
+      hub_vault_ca_secret      = local.hub_vault_ca_secret_name
+      appserv_secret_id_secret = local.appserv_secret_id_name
       mos_version              = var.mos_version
       mos_installer_sha256     = var.mos_installer_sha256
     })
@@ -46,6 +48,15 @@ resource "google_compute_instance_template" "appserv" {
 
   lifecycle {
     create_before_destroy = true
+
+    precondition {
+      condition     = !local.hub_hashicorp || var.vault_addr != ""
+      error_message = "vault_provider = hashicorp requires vault_addr (the https address of your byo Vault; this package never launches one)."
+    }
+    precondition {
+      condition     = local.hub_hashicorp || (var.vault_addr == "" && var.vault_ca_pem == "" && var.vault_role_id == "")
+      error_message = "vault_addr/vault_ca_pem/vault_role_id are only for vault_provider = hashicorp — the gcp provider uses Secret Manager with instance service accounts."
+    }
   }
 }
 
@@ -96,9 +107,14 @@ resource "google_compute_region_instance_group_manager" "appserv" {
     max_unavailable_fixed = 0
   }
 
+  # IAM member bindings are eventually consistent; submit the grants before the
+  # fleet boots so ExecStartPre / SDK reads aren't racing a cold 403.
   depends_on = [
     google_secret_manager_secret_version.appserv_vault_secret_id,
     google_secret_manager_secret_iam_member.appserv_secret_id_reader,
     google_secret_manager_secret_iam_member.appserv_vault_ca_reader,
+    google_secret_manager_secret_iam_member.appserv_own_reader,
+    google_secret_manager_secret_iam_member.appserv_verifiers_reader,
+    google_project_iam_member.appserv_secret_viewer,
   ]
 }

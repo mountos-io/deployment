@@ -4,11 +4,10 @@ set -euo pipefail
 apt-get update -y
 apt-get install -y curl jq openssl
 
-# appserv reads ALL config from Vault at boot via AppRole. Only the bootstrap
+# appserv reads ALL config from the secret store at boot. Only the bootstrap
 # env below is written locally. ADVERTISE_ADDR is the instance private IPv4
 # (reached only via the internal LB backend, same as AWS's appserv).
 meta() { curl -fsSL -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
-gcp_token() { meta "instance/service-accounts/default/token" | jq -r .access_token; }
 PRIV_IP="$(meta 'instance/network-interfaces/0/ip')"
 [ -n "$PRIV_IP" ] || { echo "metadata server returned empty private IP" >&2; exit 1; }
 
@@ -18,22 +17,28 @@ install -d -m 0755 /etc/mountos
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/mountos/appserv-key.pem -out /etc/mountos/appserv-cert.pem -days 3650 -subj "/CN=appserv" -addext "subjectAltName=IP:$PRIV_IP"
 chmod 0600 /etc/mountos/appserv-key.pem
 
-# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
-# the node self-heals when Vault publishes it after boot. See the helper below.
+%{ if vault_provider == "hashicorp" ~}
+# byo Vault config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when the operator publishes it after boot. See the helper below.
+# CA secret "-" skips the CA fetch: a byo Vault with a publicly-trusted
+# certificate needs no private CA (system CAs verify it).
 cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
 #!/bin/bash
 # ExecStartPre: (re)fetch the Vault CA + AppRole secret_id from Secret Manager so
 # the node self-heals when Vault publishes them after boot. Non-zero exit -> systemd retries.
+# CA_SECRET "-" means the Vault serves a publicly-trusted cert; skip the CA fetch.
 set -euo pipefail
 PROJECT="$1"; CA_SECRET="$2"; SECRET_ID_SECRET="$3"; SECRET_ENV="$4"
-CA_FILE=/etc/mountos/vault-ca.pem
 meta() { curl -fsSL -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
 TOKEN="$(meta 'instance/service-accounts/default/token' | jq -r .access_token)"
-curl -fsSL -H "Authorization: Bearer $TOKEN" \
-  "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$CA_SECRET/versions/latest:access" \
-  2>/dev/null | jq -r '.payload.data // empty' | base64 -d > "$CA_FILE" 2>/dev/null || true
-if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
-  echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+if [ "$CA_SECRET" != "-" ]; then
+  CA_FILE=/etc/mountos/vault-ca.pem
+  curl -fsSL -H "Authorization: Bearer $TOKEN" \
+    "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$CA_SECRET/versions/latest:access" \
+    2>/dev/null | jq -r '.payload.data // empty' | base64 -d > "$CA_FILE" 2>/dev/null || true
+  if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+    echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+  fi
 fi
 SID="$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
   "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$SECRET_ID_SECRET/versions/latest:access" \
@@ -45,12 +50,20 @@ umask 077
 printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
 EOF
 chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
+%{ endif ~}
 
 cat >/etc/mountos/appserv.env <<EOF
+%{ if vault_provider == "hashicorp" ~}
 VAULT_PROVIDER=hashicorp
 VAULT_HASHICORP_ADDRESS=${vault_addr}
 VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+%{ if vault_ca_source == "secret" ~}
 VAULT_CACERT=/etc/mountos/vault-ca.pem
+%{ endif ~}
+%{ else ~}
+VAULT_PROVIDER=gcp
+VAULT_GCP_PROJECT_ID=${project_id}
+%{ endif ~}
 PORT=8080
 HTTPS_PORT=8443
 TLS_CERT_FILE=/etc/mountos/appserv-cert.pem
@@ -68,8 +81,10 @@ bash /tmp/mos-install.sh --pkg mountos-appserv --version ${mos_version}
 bash /tmp/mos-install.sh --pkg mountos-appserv
 %{ endif ~}
 
+%{ if vault_provider == "hashicorp" ~}
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
 install -m 0600 /dev/null /etc/mountos/appserv.secret.env
+%{ endif ~}
 
 cat >/etc/systemd/system/appserv.service <<EOF
 [Unit]
@@ -80,8 +95,10 @@ StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/mountos/appserv.env
+%{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/appserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} ${hub_vault_ca_secret} ${appserv_secret_id_secret} /etc/mountos/appserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} %{ if vault_ca_source == "secret" }${hub_vault_ca_secret}%{ else }-%{ endif } ${appserv_secret_id_secret} /etc/mountos/appserv.secret.env
+%{ endif ~}
 ExecStartPre=/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
 Restart=always

@@ -25,18 +25,22 @@ mount -a
 # directly — no IMDS query — since blockserv is reached directly by clients).
 install -d -m 0755 /etc/mountos
 
-# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
-# the node self-heals when Vault publishes it after boot. See the helper below.
+%{ if vault_provider == "hashicorp" ~}
+# byo Vault config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when the operator publishes it after boot. See the helper below.
 cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
 #!/bin/bash
 # ExecStartPre: (re)fetch the Vault CA + AppRole secret_id from SSM so the node
 # self-heals when Vault publishes them after boot. Non-zero exit -> systemd retries.
+# CA_PARAM "-" means the Vault serves a publicly-trusted cert; skip the CA fetch.
 set -euo pipefail
 CA_PARAM="$1"; SECRET_PARAM="$2"; SSM_REGION="$3"; SECRET_ENV="$4"
-CA_FILE=/etc/mountos/vault-ca.pem
-aws ssm get-parameter --name "$CA_PARAM" --region "$SSM_REGION" --query Parameter.Value --output text > "$CA_FILE" 2>/dev/null || true
-if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
-  echo "waiting for Vault CA $CA_PARAM" >&2; exit 1
+if [ "$CA_PARAM" != "-" ]; then
+  CA_FILE=/etc/mountos/vault-ca.pem
+  aws ssm get-parameter --name "$CA_PARAM" --region "$SSM_REGION" --query Parameter.Value --output text > "$CA_FILE" 2>/dev/null || true
+  if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+    echo "waiting for Vault CA $CA_PARAM" >&2; exit 1
+  fi
 fi
 SID="$(aws ssm get-parameter --name "$SECRET_PARAM" --with-decryption --region "$SSM_REGION" --query Parameter.Value --output text 2>/dev/null || true)"
 if [ -z "$SID" ] || [ "$SID" = "None" ]; then
@@ -46,18 +50,26 @@ umask 077
 printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
 EOF
 chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
+%{ endif ~}
 
 cat >/etc/mountos/blockserv.env <<EOF
+%{ if vault_provider == "hashicorp" ~}
 VAULT_PROVIDER=hashicorp
 VAULT_HASHICORP_ADDRESS=${vault_addr}
 VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+%{ if vault_ca_source == "ssm" ~}
 VAULT_CACERT=/etc/mountos/vault-ca.pem
+%{ endif ~}
+%{ else ~}
+VAULT_PROVIDER=aws
+VAULT_AWS_REGION=${region}
+%{ endif ~}
 REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 BLOCK_VOLUME_ID=${block_volume_id}
 BLOCK_PORT=9100
 PORT_RANGE=9500-9600
-STORAGE_MOUNT_PATH=$CACHE_DIR
+STORAGE_MOUNT_ROOT_PATH=$CACHE_DIR
 DELETE_MODE=${delete_mode}
 ADVERTISE_ADDR=${advertise_addr}
 EOF
@@ -72,8 +84,10 @@ bash /tmp/mos-install.sh --pkg mountos-blockserv --version ${mos_version}
 bash /tmp/mos-install.sh --pkg mountos-blockserv
 %{ endif ~}
 
+%{ if vault_provider == "hashicorp" ~}
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
 install -m 0600 /dev/null /etc/mountos/blockserv.secret.env
+%{ endif ~}
 
 cat >/etc/systemd/system/blockserv.service <<EOF
 [Unit]
@@ -84,8 +98,10 @@ StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/mountos/blockserv.env
+%{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/blockserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh /mountos/region/vault-ca /mountos/region/vault-secret-id ${region} /etc/mountos/blockserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/mountos/region/vault-ca%{ else }-%{ endif } /mountos/region/vault-secret-id ${region} /etc/mountos/blockserv.secret.env
+%{ endif ~}
 ExecStart=/usr/local/bin/blockserv
 Restart=always
 RestartSec=10

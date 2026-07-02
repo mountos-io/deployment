@@ -123,6 +123,10 @@ resource "aws_lb" "appserv_srpc" {
   load_balancer_type = "network"
   subnets            = aws_subnet.public[*].id
   tags               = { Name = "mountos-appserv-srpc" }
+
+  # appserv_count (2) < AZ count (3): without cross-zone an NLB node in the
+  # AZ that has no appserv target would fail connections routed to its IP.
+  enable_cross_zone_load_balancing = true
 }
 
 resource "aws_lb_target_group" "appserv_srpc" {

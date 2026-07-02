@@ -1,4 +1,4 @@
-# Image for appserv, dataserv, blockserv, and the self-hosted Vault nodes.
+# Image for appserv, dataserv, blockserv, and the gateway fleets.
 # Ubuntu 22.04 LTS arm64. Azure resolves marketplace images via a reference
 # (publisher/offer/sku/version), not a lookup data source like AWS AMI/GCP
 # image family — set image_version to PIN a specific version for

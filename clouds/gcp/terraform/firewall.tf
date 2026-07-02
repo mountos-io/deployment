@@ -39,8 +39,8 @@ locals {
   # Google's fixed IAP TCP forwarding source range - never anything broader.
   iap_ssh_range = "35.235.240.0/20"
   all_tags = [
-    "mountos-appserv", "mountos-vault", "mountos-dataserv", "mountos-gcserv",
-    "mountos-blockserv", "mountos-gateway", "mountos-region-vault",
+    "mountos-appserv", "mountos-dataserv", "mountos-gcserv",
+    "mountos-blockserv", "mountos-gateway",
   ]
 }
 
@@ -167,20 +167,25 @@ resource "google_compute_firewall" "appserv_srpc_from_gateway" {
 }
 
 # dedicated mode: one CIDR-based rule covers all four region services (same
-# port) on the region VPC's subnets.
+# port) on the region VPC's public subnet (the only region subnet — every
+# region workload advertises a public IPv4).
 resource "google_compute_firewall" "appserv_srpc_from_region_cidr" {
   count         = local.region_dedicated_vpc ? 1 : 0
   name          = "mountos-appserv-srpc-from-region-cidr"
   network       = google_compute_network.main.id
   direction     = "INGRESS"
   target_tags   = ["mountos-appserv"]
-  source_ranges = [var.region_vpc_cidr_public, var.region_vpc_cidr_private]
+  source_ranges = [var.region_vpc_cidr_public]
   allow {
     protocol = "tcp"
     ports    = ["9443"]
   }
 }
 
+# Internal passthrough LB health checks probe SRPC :9443 from Google's ranges
+# (never from the client's IP, which the tag/CIDR rules above cover) — without
+# this rule every SRPC backend stays permanently unhealthy. The 8443 HTTPS LB
+# probe is covered by appserv_https_from_lb above (same source ranges).
 resource "google_compute_firewall" "appserv_srpc_health_check" {
   name          = "mountos-appserv-srpc-health-check"
   network       = google_compute_network.main.id

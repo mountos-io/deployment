@@ -90,11 +90,3 @@ resource "google_sql_user" "region" {
   password = random_password.region_db[0].result
 }
 
-locals {
-  region_dsn = local.region_provision_sql ? "postgresql://${var.region_db_username}:${random_password.region_db[0].result}@${google_sql_database_instance.region[0].private_ip_address}/mountos_data?sslmode=require" : var.region_db_url
-}
-
-output "region_db_url" {
-  value     = local.region_dsn
-  sensitive = true
-}

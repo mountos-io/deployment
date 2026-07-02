@@ -31,10 +31,15 @@ else
   echo "  - admin-JWT smoke skipped (no secrets.local.json on this host)"
 fi
 
-# vault auto-unseal (optional; only when VAULT_ADDR is reachable from here)
+# byo (hashicorp) Vault health (optional; only when VAULT_ADDR is exported).
+# Private-CA byo Vault: set VAULT_CACERT to its PEM (same as for the seed
+# scripts); public-CA Vaults need nothing extra. Cloud-native stores skip this.
 if [[ -n "${VAULT_ADDR:-}" ]]; then
-  sealed="$(curl -s "$VAULT_ADDR/v1/sys/seal-status" | jq -r '.sealed' 2>/dev/null)"
-  [[ "$sealed" == "false" ]] && ok "vault auto-unsealed (sealed=false)" || no "vault sealed=$sealed"
+  cacert_opt=()
+  [[ -n "${VAULT_CACERT:-}" ]] && cacert_opt=(--cacert "$VAULT_CACERT")
+  # ${arr[@]+...}: bash 3.2 (macOS default) treats an empty array as unset under set -u.
+  sealed="$(curl -s ${cacert_opt[@]+"${cacert_opt[@]}"} "$VAULT_ADDR/v1/sys/seal-status" | jq -r '.sealed' 2>/dev/null)"
+  [[ "$sealed" == "false" ]] && ok "vault unsealed (sealed=false)" || no "vault sealed=$sealed"
 fi
 
 echo "---"

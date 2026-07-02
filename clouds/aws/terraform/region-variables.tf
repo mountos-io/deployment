@@ -53,12 +53,6 @@ variable "region_db_mode" {
   }
 }
 
-variable "region_db_url" {
-  type        = string
-  description = "Full region DB DSN. Used only when region_db_mode = byo."
-  default     = ""
-}
-
 variable "region_db_username" {
   type        = string
   description = "Region RDS master username (provision-rds mode)."
@@ -83,46 +77,55 @@ variable "region_db_provider_version" {
   default     = "18"
 }
 
-variable "region_vault_hosting" {
+# Region secret store; same model as the hub's (see variables.tf): aws =
+# cloud-native Secrets Manager (RECOMMENDED; hub + region share the account's
+# mountos/* namespace, isolated by IAM), hashicorp = byo Vault, never launched.
+variable "region_vault_provider" {
   type        = string
-  description = "Region Vault hosting: self-hosted (provision an EC2 Vault) | managed-byo (use region_vault_addr)."
-  default     = "self-hosted"
+  description = "Region secret store: aws (cloud-native Secrets Manager, RECOMMENDED) | hashicorp (byo Vault via region_vault_addr; never launched by this package)."
+  default     = "aws"
   validation {
-    condition     = contains(["self-hosted", "managed-byo"], var.region_vault_hosting)
-    error_message = "region_vault_hosting must be self-hosted or managed-byo."
+    condition     = contains(["aws", "hashicorp"], var.region_vault_provider)
+    error_message = "region_vault_provider must be aws or hashicorp."
   }
 }
 
 variable "region_vault_addr" {
   type        = string
-  description = "External region Vault address. Used only when region_vault_hosting = managed-byo."
+  description = "byo region Vault address (https://...). Required when region_vault_provider = hashicorp."
+  default     = ""
+  validation {
+    condition     = var.region_vault_addr == "" || startswith(var.region_vault_addr, "https://")
+    error_message = "region_vault_addr must be an https:// URL — region services send AppRole credentials to it."
+  }
+}
+
+variable "region_vault_ca_pem" {
+  type        = string
+  description = "CA certificate PEM for a byo region Vault that serves a PRIVATE CA. Published to SSM so instances trust it. Leave empty when the byo Vault has a publicly-trusted certificate."
   default     = ""
 }
 
 variable "region_vault_role_id" {
   type        = string
-  description = "dataserv AppRole role_id for the region Vault (from the region seed step)."
+  description = "dataserv AppRole role_id for the byo region Vault (from the region seed step). hashicorp provider only."
   default     = ""
 }
 
 variable "region_vault_secret_id" {
   type        = string
-  description = "dataserv AppRole secret_id for the region Vault (short-TTL; prefer SSM/wrapped in real use)."
+  description = "dataserv AppRole secret_id for the byo region Vault (short-TTL; prefer SSM/wrapped in real use). hashicorp provider only."
   sensitive   = true
   default     = ""
 }
 
-variable "region_vault_instance_type" {
-  type        = string
-  description = "EC2 instance type for the self-hosted region Vault node (arm64)."
-  default     = "t4g.medium"
-}
-
 locals {
-  region_provision_rds  = var.region_db_mode == "provision-rds"
-  region_self_vault     = var.region_vault_hosting == "self-hosted"
-  region_vault_endpoint = local.region_self_vault ? "https://${aws_instance.region_vault[0].private_ip}:8200" : var.region_vault_addr
-  # provision-rds: AWS manages the master password (Secrets Manager), so no DSN
-  # is constructible here — region-seed.sh builds it from region_db_host +
-  # region_db_secret_arn. byo: the operator's DSN passes straight through.
+  region_provision_rds = var.region_db_mode == "provision-rds"
+  region_hashicorp     = var.region_vault_provider == "hashicorp"
+  # See variables.tf's hub_vault_ca_source for the ssm|system semantics.
+  region_vault_ca_source = var.region_vault_ca_pem != "" ? "ssm" : "system"
+  # No DB DSN is EVER a Terraform value. provision-rds: region-seed.sh builds
+  # the DSN from region_db_host + region_db_secret_arn (AWS-managed password).
+  # byo: the operator sets REGION_DB_URL in the region-seed environment —
+  # Terraform neither needs nor stores it.
 }

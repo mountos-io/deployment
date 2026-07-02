@@ -4,8 +4,8 @@ set -euo pipefail
 apt-get update -y
 apt-get install -y curl jq openssl xfsprogs
 
-# blockserv reads service config from the region Vault (mountos/blockserv) at boot
-# via the SAME region AppRole as dataserv. Only the bootstrap env below is local.
+# blockserv reads service config (mountos/blockserv) from the region secret
+# store at boot, same access path as dataserv. Only the bootstrap env below is local.
 
 # Throughput-oriented cache disk at /mnt/blockcache. GCP persistent disks get a
 # stable /dev/disk/by-id/google-<device_name> symlink once attached; wait for
@@ -31,20 +31,24 @@ mount -a
 # by clients).
 install -d -m 0755 /etc/mountos
 
-# Vault-dependent config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
-# the node self-heals when Vault publishes it after boot. See the helper below.
+%{ if vault_provider == "hashicorp" ~}
+# byo Vault config (CA + AppRole secret_id) is fetched by systemd ExecStartPre so
+# the node self-heals when the operator publishes it after boot. See the helper below.
 cat >/usr/local/bin/mos-fetch-vault-config.sh <<'EOF'
 #!/bin/bash
+# CA_SECRET "-" means the Vault serves a publicly-trusted cert; skip the CA fetch.
 set -euo pipefail
 PROJECT="$1"; CA_SECRET="$2"; SECRET_ID_SECRET="$3"; SECRET_ENV="$4"
-CA_FILE=/etc/mountos/vault-ca.pem
 meta() { curl -fsSL -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
 TOKEN="$(meta 'instance/service-accounts/default/token' | jq -r .access_token)"
-curl -fsSL -H "Authorization: Bearer $TOKEN" \
-  "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$CA_SECRET/versions/latest:access" \
-  2>/dev/null | jq -r '.payload.data // empty' | base64 -d > "$CA_FILE" 2>/dev/null || true
-if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
-  echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+if [ "$CA_SECRET" != "-" ]; then
+  CA_FILE=/etc/mountos/vault-ca.pem
+  curl -fsSL -H "Authorization: Bearer $TOKEN" \
+    "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$CA_SECRET/versions/latest:access" \
+    2>/dev/null | jq -r '.payload.data // empty' | base64 -d > "$CA_FILE" 2>/dev/null || true
+  if [ ! -s "$CA_FILE" ] || ! openssl x509 -in "$CA_FILE" -noout 2>/dev/null; then
+    echo "waiting for Vault CA secret $CA_SECRET" >&2; exit 1
+  fi
 fi
 SID="$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
   "https://secretmanager.googleapis.com/v1/projects/$PROJECT/secrets/$SECRET_ID_SECRET/versions/latest:access" \
@@ -56,18 +60,26 @@ umask 077
 printf 'VAULT_HASHICORP_SECRET_ID=%s\n' "$SID" > "$SECRET_ENV"
 EOF
 chmod 0755 /usr/local/bin/mos-fetch-vault-config.sh
+%{ endif ~}
 
 cat >/etc/mountos/blockserv.env <<EOF
+%{ if vault_provider == "hashicorp" ~}
 VAULT_PROVIDER=hashicorp
 VAULT_HASHICORP_ADDRESS=${vault_addr}
 VAULT_HASHICORP_ROLE_ID=${vault_role_id}
+%{ if vault_ca_source == "secret" ~}
 VAULT_CACERT=/etc/mountos/vault-ca.pem
+%{ endif ~}
+%{ else ~}
+VAULT_PROVIDER=gcp
+VAULT_GCP_PROJECT_ID=${project_id}
+%{ endif ~}
 REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 BLOCK_VOLUME_ID=${block_volume_id}
 BLOCK_PORT=9100
 PORT_RANGE=9500-9600
-STORAGE_MOUNT_PATH=$CACHE_DIR
+STORAGE_MOUNT_ROOT_PATH=$CACHE_DIR
 DELETE_MODE=${delete_mode}
 ADVERTISE_ADDR=${advertise_addr}
 EOF
@@ -82,8 +94,10 @@ bash /tmp/mos-install.sh --pkg mountos-blockserv --version ${mos_version}
 bash /tmp/mos-install.sh --pkg mountos-blockserv
 %{ endif ~}
 
+%{ if vault_provider == "hashicorp" ~}
 # Pre-create the secret env file so the unit's optional EnvironmentFile always exists.
 install -m 0600 /dev/null /etc/mountos/blockserv.secret.env
+%{ endif ~}
 
 cat >/etc/systemd/system/blockserv.service <<EOF
 [Unit]
@@ -94,8 +108,10 @@ StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/mountos/blockserv.env
+%{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/blockserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} ${region_vault_ca_secret} ${region_secret_id_secret} /etc/mountos/blockserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} %{ if vault_ca_source == "secret" }${region_vault_ca_secret}%{ else }-%{ endif } ${region_secret_id_secret} /etc/mountos/blockserv.secret.env
+%{ endif ~}
 ExecStart=/usr/local/bin/blockserv
 Restart=always
 RestartSec=10

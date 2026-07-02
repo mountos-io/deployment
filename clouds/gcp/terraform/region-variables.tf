@@ -45,12 +45,6 @@ variable "region_db_mode" {
   }
 }
 
-variable "region_db_url" {
-  type        = string
-  description = "Full region DB DSN. Used only when region_db_mode = byo."
-  default     = ""
-}
-
 variable "region_db_tier" {
   type        = string
   description = "Region Cloud SQL machine tier (provision-sql mode)."
@@ -75,43 +69,56 @@ variable "region_db_provider_version" {
   default     = "POSTGRES_18"
 }
 
-variable "region_vault_hosting" {
+# Region secret store; same model as the hub's (see variables.tf): gcp =
+# cloud-native Secret Manager (RECOMMENDED; hub + region share the project's
+# mountos__* namespace, isolated by IAM), hashicorp = byo Vault, never launched.
+variable "region_vault_provider" {
   type        = string
-  description = "Region Vault hosting: self-hosted (provision a GCE Vault) | managed-byo (use region_vault_addr)."
-  default     = "self-hosted"
+  description = "Region secret store: gcp (cloud-native Secret Manager, RECOMMENDED) | hashicorp (byo Vault via region_vault_addr; never launched by this package)."
+  default     = "gcp"
   validation {
-    condition     = contains(["self-hosted", "managed-byo"], var.region_vault_hosting)
-    error_message = "region_vault_hosting must be self-hosted or managed-byo."
+    condition     = contains(["gcp", "hashicorp"], var.region_vault_provider)
+    error_message = "region_vault_provider must be gcp or hashicorp."
   }
 }
 
 variable "region_vault_addr" {
   type        = string
-  description = "External region Vault address. Used only when region_vault_hosting = managed-byo."
+  description = "byo region Vault address (https://...). Required when region_vault_provider = hashicorp."
+  default     = ""
+  validation {
+    condition     = var.region_vault_addr == "" || startswith(var.region_vault_addr, "https://")
+    error_message = "region_vault_addr must be an https:// URL — region services send AppRole credentials to it."
+  }
+}
+
+variable "region_vault_ca_pem" {
+  type        = string
+  description = "CA certificate PEM for a byo region Vault that serves a PRIVATE CA. Published to Secret Manager so instances trust it. Leave empty when the byo Vault has a publicly-trusted certificate."
   default     = ""
 }
 
 variable "region_vault_role_id" {
   type        = string
-  description = "dataserv AppRole role_id for the region Vault (from the region seed step)."
+  description = "dataserv AppRole role_id for the byo region Vault (from the region seed step). hashicorp provider only."
   default     = ""
 }
 
 variable "region_vault_secret_id" {
   type        = string
-  description = "dataserv AppRole secret_id for the region Vault (short-TTL; prefer Secret Manager/wrapped in real use)."
+  description = "dataserv AppRole secret_id for the byo region Vault (short-TTL; prefer Secret Manager/wrapped in real use). hashicorp provider only."
   sensitive   = true
   default     = ""
 }
 
-variable "region_vault_machine_type" {
-  type        = string
-  description = "GCE machine type for the self-hosted region Vault node (arm64)."
-  default     = "t2a-standard-2"
-}
-
 locals {
-  region_provision_sql  = var.region_db_mode == "provision-sql"
-  region_self_vault     = var.region_vault_hosting == "self-hosted"
-  region_vault_endpoint = local.region_self_vault ? "https://${google_compute_instance.region_vault[0].network_interface[0].network_ip}:8200" : var.region_vault_addr
+  region_provision_sql = var.region_db_mode == "provision-sql"
+  region_gcp           = var.region_vault_provider == "gcp"
+  region_hashicorp     = var.region_vault_provider == "hashicorp"
+  # See variables.tf's hub_vault_ca_source for the secret|system semantics.
+  region_vault_ca_source = var.region_vault_ca_pem != "" ? "secret" : "system"
+  # No DB DSN is EVER a Terraform value in byo mode: the operator sets
+  # REGION_DB_URL in the region-seed environment. provision-sql: build the DSN
+  # from region_db_host + the mountos-region-db-password secret (see
+  # region-outputs.tf).
 }

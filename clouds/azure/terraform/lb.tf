@@ -210,6 +210,10 @@ resource "azurerm_lb_backend_address_pool" "appserv_srpc" {
   loadbalancer_id = azurerm_lb.appserv_srpc.id
 }
 
+# Probe traffic originates from 168.63.129.16 (service tag AzureLoadBalancer),
+# admitted by every NSG's default AllowAzureLoadBalancerInBound rule — the hub
+# NSG defines no custom Deny that could override it, so no explicit allow is
+# needed (unlike AWS, where NLB health checks needed their own SG rule).
 resource "azurerm_lb_probe" "appserv_health" {
   name                = "appserv-srpc"
   loadbalancer_id     = azurerm_lb.appserv_srpc.id
