@@ -8,10 +8,15 @@ apt-get install -y curl jq openssl xfsprogs
 # via the SAME region AppRole as dataserv. Only the bootstrap env below is local.
 
 # Throughput-oriented cache disk at /mnt/blockcache. GCP persistent disks get a
-# STABLE /dev/disk/by-id/google-<device_name> symlink once attached.
+# stable /dev/disk/by-id/google-<device_name> symlink once attached; wait for
+# udev to publish it so first boot does not fail on a short attach race.
 CACHE_DEV=/dev/disk/by-id/google-blockcache
 CACHE_DIR=/mnt/blockcache
 install -d -m 0750 "$CACHE_DIR"
+for _ in $(seq 1 60); do
+  [ -b "$CACHE_DEV" ] && break
+  sleep 2
+done
 [ -b "$CACHE_DEV" ] || { echo "cache device $CACHE_DEV not present" >&2; exit 1; }
 if ! blkid "$CACHE_DEV" >/dev/null 2>&1; then
   mkfs.xfs "$CACHE_DEV"

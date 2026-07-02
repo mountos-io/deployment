@@ -67,6 +67,7 @@ resource "google_compute_instance" "vault" {
   metadata_startup_script = templatefile("${path.module}/vault-init.sh.tftpl", {
     kms_key_id = google_kms_crypto_key.hub.id
     project_id = var.project_id
+    region     = var.region
     ca_secret  = google_secret_manager_secret.hub_vault_ca.secret_id
   })
 

@@ -108,6 +108,7 @@ resource "google_compute_instance" "region_vault" {
 
   metadata_startup_script = templatefile("${path.module}/region-vault-init.sh.tftpl", {
     project_id = var.project_id
+    region     = var.region
     ca_secret  = google_secret_manager_secret.region_vault_ca.secret_id
   })
 

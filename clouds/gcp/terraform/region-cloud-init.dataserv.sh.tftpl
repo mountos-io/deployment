@@ -8,11 +8,15 @@ apt-get install -y curl jq openssl xfsprogs
 # Only the bootstrap env below is written locally.
 
 # Raft data dir at /mnt/raft (ephemeral per instance). GCP persistent disks get
-# a STABLE /dev/disk/by-id/google-<device_name> symlink once attached — no
-# polling/retry needed (unlike AWS's /dev/sdX aliasing, which can lag on Nitro).
+# a stable /dev/disk/by-id/google-<device_name> symlink once attached; wait for
+# udev to publish it so first boot does not fail on a short attach race.
 RAFT_DEV=/dev/disk/by-id/google-raft
 RAFT_DIR=/mnt/raft
 install -d -m 0750 "$RAFT_DIR"
+for _ in $(seq 1 60); do
+  [ -b "$RAFT_DEV" ] && break
+  sleep 2
+done
 [ -b "$RAFT_DEV" ] || { echo "raft device $RAFT_DEV not present" >&2; exit 1; }
 if ! blkid "$RAFT_DEV" >/dev/null 2>&1; then
   mkfs.xfs "$RAFT_DEV"

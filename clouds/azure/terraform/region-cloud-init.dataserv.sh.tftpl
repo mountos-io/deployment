@@ -9,10 +9,14 @@ apt-get install -y curl jq openssl xfsprogs
 
 # Raft data dir at /mnt/raft (ephemeral per instance). Azure managed disks get
 # a predictable /dev/disk/azure/scsi1/lun<N> path based on the LUN set on the
-# data_disk block — no polling/retry needed (unlike AWS's /dev/sdX aliasing).
+# data_disk block, but custom_data can run before udev publishes the symlink.
 RAFT_DEV=/dev/disk/azure/scsi1/lun0
 RAFT_DIR=/mnt/raft
 install -d -m 0750 "$RAFT_DIR"
+for _ in $(seq 1 60); do
+  [ -b "$RAFT_DEV" ] && break
+  sleep 2
+done
 [ -b "$RAFT_DEV" ] || { echo "raft device $RAFT_DEV not present" >&2; exit 1; }
 if ! blkid "$RAFT_DEV" >/dev/null 2>&1; then
   mkfs.xfs "$RAFT_DEV"

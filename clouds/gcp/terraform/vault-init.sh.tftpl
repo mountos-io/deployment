@@ -44,6 +44,7 @@ listener "tcp" {
 
 seal "gcpckms" {
   project     = "${project_id}"
+  region      = "${region}"
   key_ring    = "mountos"
   crypto_key  = "mountos-hub"
 }
