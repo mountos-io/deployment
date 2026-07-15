@@ -67,7 +67,7 @@ variable "db_sku" {
 variable "db_storage_gb" {
   type        = number
   description = "Postgres Flexible Server storage in GiB (provision-pg mode)."
-  default     = 131072 # 128 GiB, the smallest Flexible Server storage tier
+  default     = 128 # must map to a Flexible Server storage tier (32, 64, 128, ...)
 }
 
 variable "db_username" {

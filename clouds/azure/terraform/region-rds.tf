@@ -60,7 +60,7 @@ resource "azurerm_postgresql_flexible_server" "region" {
   location               = azurerm_resource_group.main.location
   version                = var.region_db_provider_version
   sku_name               = var.region_db_sku
-  storage_mb             = var.region_db_storage_gb
+  storage_mb             = var.region_db_storage_gb * 1024
   administrator_login    = var.region_db_username
   administrator_password = random_password.region_db[0].result
   zone                   = var.mode == "production" ? var.zones[0] : null

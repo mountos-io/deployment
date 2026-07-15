@@ -54,7 +54,7 @@ variable "region_db_sku" {
 variable "region_db_storage_gb" {
   type        = number
   description = "Region Postgres Flexible Server storage in GiB (provision-pg mode)."
-  default     = 131072
+  default     = 128
 }
 
 variable "region_db_username" {

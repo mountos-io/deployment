@@ -41,7 +41,7 @@ admin_db_provider_version = "18" # PostgreSQL major version (byo: your server's)
 
 # provision-pg mode only:
 db_sku        = "GP_Standard_D2s_v3"
-db_storage_gb = 131072 # 128 GiB, the smallest Flexible Server storage tier
+db_storage_gb = 128 # GiB, must map to a Flexible Server storage tier (32, 64, 128, ...)
 db_username   = "mountos"
 
 # Secret store. This package NEVER installs or launches HashiCorp Vault.
@@ -108,7 +108,7 @@ gcserv_colocated = true
 # region_db_secret_id outputs give the DSN parts).
 region_db_mode             = "byo"
 region_db_sku              = "GP_Standard_D2s_v3" # provision-pg mode only
-region_db_storage_gb       = 131072               # provision-pg mode only
+region_db_storage_gb       = 128                  # GiB, provision-pg mode only
 region_db_username         = "mountos"            # provision-pg mode only
 region_db_provider_version = "18"
 

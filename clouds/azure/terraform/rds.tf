@@ -59,7 +59,7 @@ resource "azurerm_postgresql_flexible_server" "admin" {
   location               = azurerm_resource_group.main.location
   version                = var.admin_db_provider_version
   sku_name               = var.db_sku
-  storage_mb             = var.db_storage_gb
+  storage_mb             = var.db_storage_gb * 1024
   administrator_login    = var.db_username
   administrator_password = random_password.admin_db[0].result
   zone                   = var.mode == "production" ? var.zones[0] : null
