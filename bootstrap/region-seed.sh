@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Region bootstrap (run ONCE, operator-side): generate fresh dataserv/gcserv keys
-# plus blockserv/hdfsserv/s3gatewayserv keys (region-scoped service keypairs are
-# UNCONDITIONAL — generated and fanned out regardless of whether block_enable /
-# hdfs_enable / s3gateway_enable actually runs the service in this region), seed
+# plus blockserv keys (region-scoped service keypairs are UNCONDITIONAL —
+# generated and fanned out regardless of whether block_enable actually runs the
+# service in this region), seed
 # the REGION secret store, and FAN OUT service-verifiers between the hub and
 # region stores so SRPC registration verifies both ways (the hub trusts the new
 # region services; the region trusts the hub's appserv). Idempotent and
@@ -298,13 +298,11 @@ for svc in dataserv gcserv; do
     | rkv_put "$svc"
 done
 
-echo "==> region store: blockserv + hdfsserv + s3gatewayserv keys (no DB; UNCONDITIONAL — keyed"
-echo "    regardless of block_enable/hdfs_enable/s3gateway_enable, only running the service is opt-in)"
-for svc in blockserv hdfsserv s3gatewayserv; do
-  SIGN_KEY="$(sec "${svc}_signing")" VERIFY_KEY="$(sec "${svc}_verification")" \
-    jq -n '{ED25519_SIGNING_KEY:env.SIGN_KEY, ED25519_VERIFICATION_KEY:env.VERIFY_KEY}' \
-    | rkv_put "$svc"
-done
+echo "==> region store: blockserv keys (no DB; UNCONDITIONAL — keyed"
+echo "    regardless of block_enable, only running the service is opt-in)"
+SIGN_KEY="$(sec blockserv_signing)" VERIFY_KEY="$(sec blockserv_verification)" \
+  jq -n '{ED25519_SIGNING_KEY:env.SIGN_KEY, ED25519_VERIFICATION_KEY:env.VERIFY_KEY}' \
+  | rkv_put blockserv
 
 echo "==> region store: api-master (region-independent — generated fresh for THIS region, never"
 echo "    shared with the hub or other regions; single field 'key'; written ONCE, never overwritten"
@@ -320,26 +318,26 @@ else
   echo "    api-master already present in this region's store; leaving it as-is"
 fi
 
-echo "==> region store: service-verifiers (appserv from hub + dataserv/gcserv/blockserv/hdfsserv/s3gatewayserv; MERGE)"
+echo "==> region store: service-verifiers (appserv from hub + dataserv/gcserv/blockserv; MERGE)"
 cur_rv="$(rkv_get service-verifiers)"
 [[ -n "$cur_rv" ]] || { echo "region service-verifiers read failed" >&2; exit 1; }
 AV="$appserv_vk" DV="$(sec dataserv_verification)" GV="$(sec gcserv_verification)" \
-  BV="$(sec blockserv_verification)" HDV="$(sec hdfsserv_verification)" SV="$(sec s3gatewayserv_verification)" \
+  BV="$(sec blockserv_verification)" \
   jq -n --argjson cur "$cur_rv" \
-  '$cur + {appserv:env.AV, dataserv:env.DV, gcserv:env.GV, blockserv:env.BV, hdfsserv:env.HDV, s3gatewayserv:env.SV}' \
+  '$cur + {appserv:env.AV, dataserv:env.DV, gcserv:env.GV, blockserv:env.BV}' \
   | rkv_put service-verifiers
 
 echo "==> hub store: add region verifiers (fan-out; MERGE so appserv stays)"
 hub_v="$(hub_kv_get service-verifiers)"
 [[ -n "$hub_v" ]] || { echo "hub service-verifiers read failed" >&2; exit 1; }
 DV="$(sec dataserv_verification)" GV="$(sec gcserv_verification)" \
-  BV="$(sec blockserv_verification)" HDV="$(sec hdfsserv_verification)" SV="$(sec s3gatewayserv_verification)" \
+  BV="$(sec blockserv_verification)" \
   jq -n --argjson cur "$hub_v" \
-  '$cur + {dataserv:env.DV, gcserv:env.GV, blockserv:env.BV, hdfsserv:env.HDV, s3gatewayserv:env.SV}' \
+  '$cur + {dataserv:env.DV, gcserv:env.GV, blockserv:env.BV}' \
   | hub_kv_put service-verifiers
 
 if [[ "$REGION_VAULT_PROVIDER" == "hashicorp" ]]; then
-  echo "==> region AppRole (shared by dataserv/gcserv and, when enabled, blockserv/hdfsserv/s3gatewayserv)"
+  echo "==> region AppRole (shared by dataserv/gcserv and, when enabled, blockserv)"
   _hv_req "$REGION_VAULT_TOKEN" no -X POST "$REGION_VAULT_ADDR/v1/auth/approle/role/region" -d '{"token_policies":"region","token_ttl":"1h"}' >/dev/null
   role_id="$(_hv_req "$REGION_VAULT_TOKEN" no "$REGION_VAULT_ADDR/v1/auth/approle/role/region/role-id" | jq -r .data.role_id)"
   echo "region_vault_role_id=$role_id"
@@ -348,5 +346,5 @@ else
   echo "==> done. Region instances read the store with their platform identity (no AppRole/token)."
 fi
 echo "     After dataserv registers over SRPC, the region's uno cluster flips ready."
-echo "     blockserv/hdfsserv/s3gatewayserv keys are already seeded above; set block_enable/"
-echo "     hdfs_enable/s3gateway_enable=true in tfvars only for the ones you want RUNNING."
+echo "     blockserv keys are already seeded above; set block_enable=true in tfvars"
+echo "     only if you want it RUNNING."

@@ -91,10 +91,10 @@ resource "google_secret_manager_secret_version" "region_vault_secret_id" {
 # hard isolation rules: appserv can NEVER read mountos__api-master, and region
 # services can NEVER read mountos__appserv.
 #
-# The worker containers (blockserv/hdfsserv/s3gatewayserv) are created
-# whenever the region uses the gcp provider, independent of the fleet enable
-# toggles: `make region-bootstrap` seeds all of them unconditionally, and a
-# later enable must not fight the seed over container ownership.
+# The blockserv worker container is created whenever the region uses the gcp
+# provider, independent of the fleet enable toggle: `make region-bootstrap`
+# seeds it unconditionally, and a later enable must not fight the seed over
+# container ownership.
 #
 # The DYNAMIC per-volume credential secrets (mountos__s3creds__*,
 # mountos__volcreds__*) are created at runtime by dataserv/gcserv and are
@@ -167,30 +167,6 @@ resource "google_secret_manager_secret" "api_master" {
 resource "google_secret_manager_secret" "blockserv_config" {
   count     = local.region_gcp ? 1 : 0
   secret_id = "mountos__blockserv"
-  replication {
-    auto {}
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "google_secret_manager_secret" "hdfsserv_config" {
-  count     = local.region_gcp ? 1 : 0
-  secret_id = "mountos__hdfsserv"
-  replication {
-    auto {}
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "google_secret_manager_secret" "s3gatewayserv_config" {
-  count     = local.region_gcp ? 1 : 0
-  secret_id = "mountos__s3gatewayserv"
   replication {
     auto {}
   }

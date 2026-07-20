@@ -3,7 +3,7 @@
 # floor, not an exhaustive monitoring suite (mirrors alarms.tf on AWS).
 #
 # NOT covered here (open gap, not silently claimed as done): a MIG/backend-
-# service health alert for appserv/dataserv/hdfsserv/s3gatewayserv. GCP's
+# service health alert for appserv/dataserv. GCP's
 # instance-group/backend-service Monitoring resource types and label schemas
 # (self-link vs bare name, gce_instance_group vs gce_instance_group_manager,
 # the exact metric name) could not be confirmed without live API access — an

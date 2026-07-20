@@ -85,11 +85,9 @@ locals {
     "${local.sm_arn_prefix}:mountos/volcreds/*",
   ]
 
-  # blockserv / gateways: read-only — own config, verifiers, volume credentials.
+  # blockserv: read-only, own config plus verifiers and volume credentials.
   region_worker_secret_arns = [
     "${local.sm_arn_prefix}:mountos/blockserv-??????",
-    "${local.sm_arn_prefix}:mountos/s3gatewayserv-??????",
-    "${local.sm_arn_prefix}:mountos/hdfsserv-??????",
     "${local.sm_arn_prefix}:mountos/service-verifiers-??????",
     "${local.sm_arn_prefix}:mountos/s3creds/*",
     "${local.sm_arn_prefix}:mountos/volcreds/*",
@@ -156,19 +154,5 @@ resource "aws_iam_role_policy" "blockserv_secretstore" {
   count  = var.block_enable && var.region_vault_provider == "aws" ? 1 : 0
   name   = "mountos-blockserv-secretstore"
   role   = aws_iam_role.blockserv[0].id
-  policy = data.aws_iam_policy_document.region_worker_secretstore.json
-}
-
-resource "aws_iam_role_policy" "s3gatewayserv_secretstore" {
-  count  = var.s3gateway_enable && var.region_vault_provider == "aws" ? 1 : 0
-  name   = "mountos-s3gatewayserv-secretstore"
-  role   = aws_iam_role.s3gatewayserv[0].id
-  policy = data.aws_iam_policy_document.region_worker_secretstore.json
-}
-
-resource "aws_iam_role_policy" "hdfsserv_secretstore" {
-  count  = var.hdfs_enable && var.region_vault_provider == "aws" ? 1 : 0
-  name   = "mountos-hdfsserv-secretstore"
-  role   = aws_iam_role.hdfsserv[0].id
   policy = data.aws_iam_policy_document.region_worker_secretstore.json
 }

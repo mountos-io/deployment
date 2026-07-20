@@ -1,7 +1,6 @@
 # One service account per region service (dataserv/gcserv co-located,
-# blockserv, hdfsserv+s3gatewayserv share the "gateway" tier the same way they
-# share a firewall tag) — blast-radius isolation, matching the AWS module's
-# per-service IAM role even where services share a security group/tag.
+# blockserv) — blast-radius isolation, matching the AWS module's per-service
+# IAM role even where services share a security group/tag.
 
 resource "google_service_account" "dataserv" {
   account_id   = "mountos-dataserv"
@@ -14,18 +13,6 @@ resource "google_service_account" "blockserv" {
   display_name = "mountOS blockserv"
 }
 
-resource "google_service_account" "hdfsserv" {
-  count        = var.hdfs_enable ? 1 : 0
-  account_id   = "mountos-hdfsserv"
-  display_name = "mountOS hdfsserv"
-}
-
-resource "google_service_account" "s3gatewayserv" {
-  count        = var.s3gateway_enable ? 1 : 0
-  account_id   = "mountos-s3gatewayserv"
-  display_name = "mountOS s3gatewayserv"
-}
-
 # ---------- byo Vault (region_vault_provider = hashicorp) ----------
 # All region services read the same region Vault CA + AppRole secret_id (same
 # region AppRole) that Terraform publishes to Secret Manager (secrets.tf).
@@ -34,8 +21,6 @@ locals {
   region_hashicorp_readers = local.region_hashicorp ? merge(
     { dataserv = "serviceAccount:${google_service_account.dataserv.email}" },
     var.block_enable ? { blockserv = "serviceAccount:${google_service_account.blockserv[0].email}" } : {},
-    var.hdfs_enable ? { hdfsserv = "serviceAccount:${google_service_account.hdfsserv[0].email}" } : {},
-    var.s3gateway_enable ? { s3gatewayserv = "serviceAccount:${google_service_account.s3gatewayserv[0].email}" } : {},
   ) : {}
 }
 
@@ -58,7 +43,7 @@ resource "google_secret_manager_secret_iam_member" "region_vault_ca_reader" {
 #   dataserv + co-located gcserv: read own configs, verifiers, api-master;
 #     write api-master (gcserv rotation) and full CRUD on the runtime-created
 #     per-volume credential secrets (mountos__s3creds__*/mountos__volcreds__*).
-#   blockserv / gateways: read-only — own config, verifiers, volume credentials.
+#   blockserv: read-only, own config plus verifiers and volume credentials.
 # Hard rules preserved (see iam.tf): appserv never reads mountos__api-master,
 # region services never read mountos__appserv.
 #
@@ -176,20 +161,12 @@ resource "google_project_iam_member" "dataserv_secret_viewer" {
   member  = "serviceAccount:${google_service_account.dataserv.email}"
 }
 
-# blockserv / gateways: read-only — own config, verifiers, volume credentials.
+# blockserv: read-only, own config plus verifiers and volume credentials.
 locals {
   region_gcp_workers = local.region_gcp ? merge(
     var.block_enable ? { blockserv = {
       member     = "serviceAccount:${google_service_account.blockserv[0].email}",
       own_secret = google_secret_manager_secret.blockserv_config[0].id,
-    } } : {},
-    var.hdfs_enable ? { hdfsserv = {
-      member     = "serviceAccount:${google_service_account.hdfsserv[0].email}",
-      own_secret = google_secret_manager_secret.hdfsserv_config[0].id,
-    } } : {},
-    var.s3gateway_enable ? { s3gatewayserv = {
-      member     = "serviceAccount:${google_service_account.s3gatewayserv[0].email}",
-      own_secret = google_secret_manager_secret.s3gatewayserv_config[0].id,
     } } : {},
   ) : {}
 }

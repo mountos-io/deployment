@@ -8,18 +8,18 @@
 # peering boundary — cross-VNet traffic (hub<->region, dedicated mode) needs
 # CIDR-based rules instead, same reasoning as the AWS/GCP dedicated-mode fixes.
 #
-# IMPORTANT: blockserv/s3gatewayserv/hdfsserv otherwise pick a DYNAMIC SRPC port
-# (ephemeral :0), which cannot be firewalled. Deploy MUST set PORT_RANGE on
-# those services to exactly the range below so appserv -> service SRPC is allowed.
+# IMPORTANT: blockserv otherwise picks a DYNAMIC SRPC port (ephemeral :0),
+# which cannot be firewalled. Deploy MUST set PORT_RANGE on that service to
+# exactly the range below so appserv -> service SRPC is allowed.
 
 variable "client_cidr" {
-  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100, gateways 8484/9870) (required — do not use 0.0.0.0/0 in production)."
+  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100) (required — do not use 0.0.0.0/0 in production)."
   type        = string
 }
 
 locals {
   srpc_range_from = 9500
-  srpc_range_to   = 9600 # set PORT_RANGE=9500-9600 on blockserv/s3gatewayserv/hdfsserv
+  srpc_range_to   = 9600 # set PORT_RANGE=9500-9600 on blockserv
 }
 
 resource "azurerm_application_security_group" "appserv" {
@@ -42,12 +42,6 @@ resource "azurerm_application_security_group" "gcserv" {
 
 resource "azurerm_application_security_group" "blockserv" {
   name                = "mountos-blockserv"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-}
-
-resource "azurerm_application_security_group" "gateway" {
-  name                = "mountos-gateway"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
@@ -118,22 +112,7 @@ resource "azurerm_network_security_rule" "appserv_srpc_from_blockserv" {
   destination_application_security_group_ids = [azurerm_application_security_group.appserv.id]
 }
 
-resource "azurerm_network_security_rule" "appserv_srpc_from_gateway" {
-  count                                      = local.region_dedicated_vnet ? 0 : 1
-  name                                       = "appserv-srpc-from-gateway"
-  resource_group_name                        = azurerm_resource_group.main.name
-  network_security_group_name                = azurerm_network_security_group.hub.name
-  priority                                   = 113
-  direction                                  = "Inbound"
-  access                                     = "Allow"
-  protocol                                   = "Tcp"
-  source_port_range                          = "*"
-  destination_port_range                     = "9443"
-  source_application_security_group_ids      = [azurerm_application_security_group.gateway.id]
-  destination_application_security_group_ids = [azurerm_application_security_group.appserv.id]
-}
-
-# dedicated mode: one CIDR-based rule covers all four region services (same
+# dedicated mode: one CIDR-based rule covers all region services (same
 # port), since ASGs don't match across the peering boundary.
 resource "azurerm_network_security_rule" "appserv_srpc_from_region_cidr" {
   count                                      = local.region_dedicated_vnet ? 1 : 0
@@ -156,7 +135,7 @@ resource "azurerm_network_security_rule" "appserv_srpc_from_region_cidr" {
 # per subnet — per-NIC association is what lets different tiers share a subnet
 # while each getting its own rule set.
 
-# ---------- region NSG (dataserv/gcserv/blockserv/gateway) ----------
+# ---------- region NSG (dataserv/gcserv/blockserv) ----------
 resource "azurerm_network_security_group" "region" {
   name                = "mountos-region"
   resource_group_name = azurerm_resource_group.main.name
@@ -174,20 +153,6 @@ resource "azurerm_network_security_rule" "dataserv_client" {
   source_port_range                          = "*"
   destination_port_range                     = "6464"
   source_address_prefix                      = var.client_cidr
-  destination_application_security_group_ids = [azurerm_application_security_group.dataserv.id]
-}
-
-resource "azurerm_network_security_rule" "dataserv_data_from_gateway" {
-  name                                       = "dataserv-data-from-gateway"
-  resource_group_name                        = azurerm_resource_group.main.name
-  network_security_group_name                = azurerm_network_security_group.region.name
-  priority                                   = 101
-  direction                                  = "Inbound"
-  access                                     = "Allow"
-  protocol                                   = "Tcp"
-  source_port_range                          = "*"
-  destination_port_range                     = "6464"
-  source_application_security_group_ids      = [azurerm_application_security_group.gateway.id]
   destination_application_security_group_ids = [azurerm_application_security_group.dataserv.id]
 }
 
@@ -321,64 +286,6 @@ resource "azurerm_network_security_rule" "blockserv_srpc_from_appserv_cidr" {
   destination_port_range                     = "${local.srpc_range_from}-${local.srpc_range_to}"
   source_address_prefixes                    = [var.vnet_cidr_public, var.vnet_cidr_private]
   destination_application_security_group_ids = [azurerm_application_security_group.blockserv.id]
-}
-
-resource "azurerm_network_security_rule" "gateway_s3" {
-  name                                       = "gateway-s3"
-  resource_group_name                        = azurerm_resource_group.main.name
-  network_security_group_name                = azurerm_network_security_group.region.name
-  priority                                   = 116
-  direction                                  = "Inbound"
-  access                                     = "Allow"
-  protocol                                   = "Tcp"
-  source_port_range                          = "*"
-  destination_port_range                     = "8484"
-  source_address_prefix                      = var.client_cidr
-  destination_application_security_group_ids = [azurerm_application_security_group.gateway.id]
-}
-
-resource "azurerm_network_security_rule" "gateway_hdfs" {
-  name                                       = "gateway-hdfs"
-  resource_group_name                        = azurerm_resource_group.main.name
-  network_security_group_name                = azurerm_network_security_group.region.name
-  priority                                   = 117
-  direction                                  = "Inbound"
-  access                                     = "Allow"
-  protocol                                   = "Tcp"
-  source_port_range                          = "*"
-  destination_port_range                     = "9870"
-  source_address_prefix                      = var.client_cidr
-  destination_application_security_group_ids = [azurerm_application_security_group.gateway.id]
-}
-
-resource "azurerm_network_security_rule" "gateway_srpc_from_appserv" {
-  count                                      = local.region_dedicated_vnet ? 0 : 1
-  name                                       = "gateway-srpc-from-appserv"
-  resource_group_name                        = azurerm_resource_group.main.name
-  network_security_group_name                = azurerm_network_security_group.region.name
-  priority                                   = 118
-  direction                                  = "Inbound"
-  access                                     = "Allow"
-  protocol                                   = "Tcp"
-  source_port_range                          = "*"
-  destination_port_range                     = "${local.srpc_range_from}-${local.srpc_range_to}"
-  source_application_security_group_ids      = [azurerm_application_security_group.appserv.id]
-  destination_application_security_group_ids = [azurerm_application_security_group.gateway.id]
-}
-
-resource "azurerm_network_security_rule" "gateway_srpc_from_appserv_cidr" {
-  count                                      = local.region_dedicated_vnet ? 1 : 0
-  name                                       = "gateway-srpc-from-appserv-cidr"
-  resource_group_name                        = azurerm_resource_group.main.name
-  network_security_group_name                = azurerm_network_security_group.region.name
-  priority                                   = 119
-  direction                                  = "Inbound"
-  access                                     = "Allow"
-  protocol                                   = "Tcp"
-  source_port_range                          = "*"
-  destination_port_range                     = "${local.srpc_range_from}-${local.srpc_range_to}"
-  source_address_prefixes                    = [var.vnet_cidr_public, var.vnet_cidr_private]
-  destination_application_security_group_ids = [azurerm_application_security_group.gateway.id]
 }
 
 # NSGs are resource-group-scoped, not VNet-bound — the single azurerm_network_security_group.region

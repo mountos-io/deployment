@@ -12,8 +12,6 @@ locals {
   region_secret_reader_arns = compact([
     aws_iam_role.dataserv.arn,
     var.block_enable ? aws_iam_role.blockserv[0].arn : "",
-    var.hdfs_enable ? aws_iam_role.hdfsserv[0].arn : "",
-    var.s3gateway_enable ? aws_iam_role.s3gatewayserv[0].arn : "",
   ])
 }
 
@@ -75,7 +73,7 @@ data "aws_iam_policy_document" "region_key" {
       identifiers = [local.account_root_arn]
     }
   }
-  # dataserv/blockserv/hdfsserv/s3gatewayserv (whichever are enabled) read
+  # dataserv/blockserv (whichever are enabled) read
   # /mountos/region/vault-secret-id + /mountos/region/vault-ca, SecureString-
   # encrypted with this CMK — decrypt-only, and only reachable via SSM.
   statement {

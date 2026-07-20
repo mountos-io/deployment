@@ -2,7 +2,7 @@
 # Its Vault keys are seeded unconditionally by region-seed.sh; only running the
 # fleet is gated by block_enable. Reuses region vars (region_cluster_id,
 # region_vault_*, mos_version, mode) and hub resources (local.machine_image,
-# region_public_subnet, gateway firewall tag).
+# region_public_subnet, blockserv firewall tag).
 
 variable "block_enable" {
   type        = bool

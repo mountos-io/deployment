@@ -26,7 +26,7 @@ help:
 	@echo "  bootstrap  generate fresh keys -> seed the hub secret store (cloud-native or your byo Vault; run ONCE, operator-side)"
 	@echo "  verify     read-only health gates against the running hub"
 	@echo "  upgrade    set MOS_VERSION in answers.env, then 'make apply' to roll the ASG (no data touched)"
-	@echo "  region-bootstrap  seed the region secret store (dataserv/gcserv/blockserv/hdfsserv/s3gatewayserv keys, unconditional) + fan out hub<->region verifiers"
+	@echo "  region-bootstrap  seed the region secret store (dataserv/gcserv/blockserv keys, unconditional) + fan out hub<->region verifiers"
 	@echo ""
 	@echo "  CLOUD=$(CLOUD) (default aws). Substrate: clouds/$(CLOUD)/terraform"
 	@echo "  NO destroy target by design."

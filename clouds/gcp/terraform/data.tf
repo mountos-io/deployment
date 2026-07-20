@@ -4,7 +4,7 @@ data "google_project" "current" {
   project_id = var.project_id
 }
 
-# Image for appserv, dataserv, blockserv, and the gateway nodes.
+# Image for appserv, dataserv, and blockserv.
 # Default: look up the latest Debian 12 arm64. Set var.machine_image to PIN a
 # specific image (family or full self_link) for reproducible/production rollouts.
 variable "machine_image" {

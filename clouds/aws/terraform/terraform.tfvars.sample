@@ -134,13 +134,3 @@ block_members = [
 # Network-enhanced arm64 family and throughput-oriented cache EBS per member.
 block_instance_type = "m7gn.2xlarge"
 block_cache_gb      = 500
-
-# ---------- hdfsserv / s3gatewayserv (protocol gateways) ----------
-
-# Opt-in and independent of each other. Both are stateless, cluster-wide
-# gateways (not tied to a storage type); their Vault keys are already seeded by
-# `make region-bootstrap` (unconditional). Reuses the region Vault AppRole above.
-hdfs_enable       = false
-hdfs_count        = 2
-s3gateway_enable  = false
-s3gateway_count   = 2

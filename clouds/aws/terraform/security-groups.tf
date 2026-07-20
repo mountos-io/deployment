@@ -2,18 +2,18 @@
 # Three tiers: client-facing (open to client_cidr), intra-cluster (peer SG only), never-exposed
 # (pprof 6060-6160 = loopback; HTTP metrics 8080/METRICS_PORT = monitoring only — not opened here).
 #
-# IMPORTANT: blockserv / s3gatewayserv / hdfsserv otherwise pick a DYNAMIC SRPC port (ephemeral :0),
-# which cannot be firewalled. Deploy MUST set PORT_RANGE on those services to exactly the range below
+# IMPORTANT: blockserv otherwise picks a DYNAMIC SRPC port (ephemeral :0),
+# which cannot be firewalled. Deploy MUST set PORT_RANGE on that service to exactly the range below
 # so appserv -> service SRPC is allowed by the security group.
 
 variable "client_cidr" {
-  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100, gateways 8484/9870) (required; the CIDR allowed to reach client-facing + hub ports — do not use 0.0.0.0/0 in production)."
+  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100) (required; the CIDR allowed to reach client-facing + hub ports — do not use 0.0.0.0/0 in production)."
   type        = string
 }
 
 locals {
   srpc_range_from = 9500
-  srpc_range_to   = 9600 # set PORT_RANGE=9500-9600 on blockserv/s3gatewayserv/hdfsserv
+  srpc_range_to   = 9600 # set PORT_RANGE=9500-9600 on blockserv
 }
 
 # ---------- security group shells (rules attached separately to avoid cross-SG cycles) ----------
@@ -45,13 +45,6 @@ resource "aws_security_group" "blockserv" {
   tags        = { Name = "mountos-blockserv" }
 }
 
-resource "aws_security_group" "gateway" {
-  name        = "mountos-gateway"
-  description = "s3gatewayserv/hdfsserv: client S3/WebHDFS + SRPC"
-  vpc_id      = local.region_vpc_id
-  tags        = { Name = "mountos-gateway" }
-}
-
 # ---------- egress: allow all, every group ----------
 resource "aws_vpc_security_group_egress_rule" "appserv_all" {
   security_group_id = aws_security_group.appserv.id
@@ -73,12 +66,6 @@ resource "aws_vpc_security_group_egress_rule" "blockserv_all" {
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
 }
-resource "aws_vpc_security_group_egress_rule" "gateway_all" {
-  security_group_id = aws_security_group.gateway.id
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-}
-
 # ---------- appserv ingress ----------
 # (Clients terminate at the ALB on 443 — see lb.tf. The instances themselves
 # listen only on 8443 (from the ALB) and 9443 (SRPC), so no 443 rule here.)
@@ -111,16 +98,7 @@ resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_blockserv" {
   ip_protocol                  = "tcp"
   description                  = "SRPC registration from blockserv"
 }
-resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_gateway" {
-  count                        = local.region_dedicated_vpc ? 0 : 1
-  security_group_id            = aws_security_group.appserv.id
-  referenced_security_group_id = aws_security_group.gateway.id
-  from_port                    = 9443
-  to_port                      = 9443
-  ip_protocol                  = "tcp"
-  description                  = "SRPC registration from gateways"
-}
-# dedicated mode: one CIDR-based rule covers all four region services (same
+# dedicated mode: one CIDR-based rule covers all region services (same
 # port), since SG references don't work across the peered VPC boundary.
 resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_region_cidr" {
   count             = local.region_dedicated_vpc ? 1 : 0
@@ -152,14 +130,6 @@ resource "aws_vpc_security_group_ingress_rule" "dataserv_client" {
   to_port           = 6464
   ip_protocol       = "tcp"
   description       = "client metadata (mfuse), Noise"
-}
-resource "aws_vpc_security_group_ingress_rule" "dataserv_data_from_gateway" {
-  security_group_id            = aws_security_group.dataserv.id
-  referenced_security_group_id = aws_security_group.gateway.id
-  from_port                    = 6464
-  to_port                      = 6464
-  ip_protocol                  = "tcp"
-  description                  = "gateways -> dataserv data plane"
 }
 resource "aws_vpc_security_group_ingress_rule" "dataserv_raft_self" {
   security_group_id            = aws_security_group.dataserv.id
@@ -246,48 +216,11 @@ resource "aws_vpc_security_group_ingress_rule" "blockserv_srpc_from_appserv_cidr
   description       = "SRPC from HUB VPC (dedicated mode; PORT_RANGE must be pinned to this range)"
 }
 
-# ---------- gateway ingress (s3gatewayserv 8484, hdfsserv 9870) ----------
-resource "aws_vpc_security_group_ingress_rule" "gateway_s3" {
-  security_group_id = aws_security_group.gateway.id
-  cidr_ipv4         = var.client_cidr
-  from_port         = 8484
-  to_port           = 8484
-  ip_protocol       = "tcp"
-  description       = "S3 REST (SigV4)"
-}
-resource "aws_vpc_security_group_ingress_rule" "gateway_hdfs" {
-  security_group_id = aws_security_group.gateway.id
-  cidr_ipv4         = var.client_cidr
-  from_port         = 9870
-  to_port           = 9870
-  ip_protocol       = "tcp"
-  description       = "WebHDFS"
-}
-resource "aws_vpc_security_group_ingress_rule" "gateway_srpc_from_appserv" {
-  count                        = local.region_dedicated_vpc ? 0 : 1
-  security_group_id            = aws_security_group.gateway.id
-  referenced_security_group_id = aws_security_group.appserv.id
-  from_port                    = local.srpc_range_from
-  to_port                      = local.srpc_range_to
-  ip_protocol                  = "tcp"
-  description                  = "SRPC from HUB (PORT_RANGE must be pinned to this range)"
-}
-resource "aws_vpc_security_group_ingress_rule" "gateway_srpc_from_appserv_cidr" {
-  count             = local.region_dedicated_vpc ? 1 : 0
-  security_group_id = aws_security_group.gateway.id
-  cidr_ipv4         = var.vpc_cidr
-  from_port         = local.srpc_range_from
-  to_port           = local.srpc_range_to
-  ip_protocol       = "tcp"
-  description       = "SRPC from HUB VPC (dedicated mode; PORT_RANGE must be pinned to this range)"
-}
-
 output "security_group_ids" {
   value = {
     appserv   = aws_security_group.appserv.id
     dataserv  = aws_security_group.dataserv.id
     gcserv    = aws_security_group.gcserv.id
     blockserv = aws_security_group.blockserv.id
-    gateway   = aws_security_group.gateway.id
   }
 }

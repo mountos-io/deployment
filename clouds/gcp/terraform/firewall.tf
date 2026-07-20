@@ -7,12 +7,12 @@
 # cross the peering boundary — same reasoning as the AWS module's dedicated-mode
 # CIDR rules.
 #
-# IMPORTANT: blockserv/s3gatewayserv/hdfsserv otherwise pick a DYNAMIC SRPC port
-# (ephemeral :0), which cannot be firewalled. Deploy MUST set PORT_RANGE on
-# those services to exactly the range below so appserv -> service SRPC is allowed.
+# IMPORTANT: blockserv otherwise picks a DYNAMIC SRPC port (ephemeral :0),
+# which cannot be firewalled. Deploy MUST set PORT_RANGE on that service to
+# exactly the range below so appserv -> service SRPC is allowed.
 
 variable "client_cidr" {
-  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100, gateways 8484/9870) (required — do not use 0.0.0.0/0 in production)."
+  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100) (required — do not use 0.0.0.0/0 in production)."
   type        = string
 }
 
@@ -30,7 +30,7 @@ variable "iap_ssh_enable" {
 
 locals {
   srpc_range_from = 9500
-  srpc_range_to   = 9600 # set PORT_RANGE=9500-9600 on blockserv/s3gatewayserv/hdfsserv
+  srpc_range_to   = 9600 # set PORT_RANGE=9500-9600 on blockserv
 
   # Google's published health-check + LB source ranges (both external HTTP(S)
   # and internal TCP/UDP LB health probing).
@@ -40,7 +40,7 @@ locals {
   iap_ssh_range = "35.235.240.0/20"
   all_tags = [
     "mountos-appserv", "mountos-dataserv", "mountos-gcserv",
-    "mountos-blockserv", "mountos-gateway",
+    "mountos-blockserv",
   ]
 }
 
@@ -153,20 +153,7 @@ resource "google_compute_firewall" "appserv_srpc_from_blockserv" {
   }
 }
 
-resource "google_compute_firewall" "appserv_srpc_from_gateway" {
-  count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-appserv-srpc-from-gateway"
-  network     = google_compute_network.main.id
-  direction   = "INGRESS"
-  target_tags = ["mountos-appserv"]
-  source_tags = ["mountos-gateway"]
-  allow {
-    protocol = "tcp"
-    ports    = ["9443"]
-  }
-}
-
-# dedicated mode: one CIDR-based rule covers all four region services (same
+# dedicated mode: one CIDR-based rule covers all region services (same
 # port) on the region VPC's public subnet (the only region subnet — every
 # region workload advertises a public IPv4).
 resource "google_compute_firewall" "appserv_srpc_from_region_cidr" {
@@ -223,18 +210,6 @@ resource "google_compute_firewall" "dataserv_health_check" {
   direction     = "INGRESS"
   target_tags   = ["mountos-dataserv"]
   source_ranges = local.google_lb_ranges
-  allow {
-    protocol = "tcp"
-    ports    = ["6464"]
-  }
-}
-
-resource "google_compute_firewall" "dataserv_data_from_gateway" {
-  name        = "mountos-dataserv-data-from-gateway"
-  network     = local.region_network
-  direction   = "INGRESS"
-  target_tags = ["mountos-dataserv"]
-  source_tags = ["mountos-gateway"]
   allow {
     protocol = "tcp"
     ports    = ["6464"]
@@ -350,72 +325,6 @@ resource "google_compute_firewall" "blockserv_srpc_from_appserv_cidr" {
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = ["mountos-blockserv"]
-  source_ranges = [var.vpc_cidr_public, var.vpc_cidr_private]
-  allow {
-    protocol = "tcp"
-    ports    = ["${local.srpc_range_from}-${local.srpc_range_to}"]
-  }
-}
-
-# ---------- gateway ingress (region network; s3gatewayserv 8484, hdfsserv 9870) ----------
-resource "google_compute_firewall" "gateway_s3" {
-  name          = "mountos-gateway-s3"
-  network       = local.region_network
-  direction     = "INGRESS"
-  target_tags   = ["mountos-gateway"]
-  source_ranges = [var.client_cidr]
-  allow {
-    protocol = "tcp"
-    ports    = ["8484"]
-  }
-}
-
-resource "google_compute_firewall" "gateway_hdfs" {
-  name          = "mountos-gateway-hdfs"
-  network       = local.region_network
-  direction     = "INGRESS"
-  target_tags   = ["mountos-gateway"]
-  source_ranges = [var.client_cidr]
-  allow {
-    protocol = "tcp"
-    ports    = ["9870"]
-  }
-}
-
-# Same reasoning as dataserv_health_check above: hdfsserv/s3gatewayserv MIGs
-# auto-heal on a real network probe from Google's ranges. One rule for both
-# ports since both services share the "mountos-gateway" tag.
-resource "google_compute_firewall" "gateway_health_check" {
-  name          = "mountos-gateway-health-check"
-  network       = local.region_network
-  direction     = "INGRESS"
-  target_tags   = ["mountos-gateway"]
-  source_ranges = local.google_lb_ranges
-  allow {
-    protocol = "tcp"
-    ports    = ["8484", "9870"]
-  }
-}
-
-resource "google_compute_firewall" "gateway_srpc_from_appserv" {
-  count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-gateway-srpc-from-appserv"
-  network     = local.region_network
-  direction   = "INGRESS"
-  target_tags = ["mountos-gateway"]
-  source_tags = ["mountos-appserv"]
-  allow {
-    protocol = "tcp"
-    ports    = ["${local.srpc_range_from}-${local.srpc_range_to}"]
-  }
-}
-
-resource "google_compute_firewall" "gateway_srpc_from_appserv_cidr" {
-  count         = local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-gateway-srpc-from-appserv-cidr"
-  network       = local.region_network
-  direction     = "INGRESS"
-  target_tags   = ["mountos-gateway"]
   source_ranges = [var.vpc_cidr_public, var.vpc_cidr_private]
   allow {
     protocol = "tcp"

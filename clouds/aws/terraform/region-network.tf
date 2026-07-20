@@ -36,9 +36,9 @@ locals {
   region_vpc_id  = local.region_dedicated_vpc ? aws_vpc.region[0].id : aws_vpc.main.id
   region_subnets = local.region_dedicated_vpc ? aws_subnet.region_private : aws_subnet.private
 
-  # Client-facing data-plane services (dataserv, blockserv, hdfsserv,
-  # s3gatewayserv) advertise a public IPv4 and are reached directly by IP —
-  # they need PUBLIC subnets (IGW route), unlike region RDS/Vault.
+  # Client-facing data-plane services (dataserv, blockserv) advertise a public
+  # IPv4 and are reached directly by IP — they need PUBLIC subnets (IGW route),
+  # unlike region RDS/Vault.
   region_public_subnets = local.region_dedicated_vpc ? aws_subnet.region_public : aws_subnet.public
 }
 
@@ -89,8 +89,8 @@ resource "aws_route" "region_public_igw" {
   gateway_id             = aws_internet_gateway.region_igw[0].id
 }
 
-# dataserv/blockserv/hdfsserv/s3gatewayserv run in THIS subnet tier (public IP
-# requirement) — they still need a route back to the hub VPC (the NLB for SRPC).
+# dataserv/blockserv run in THIS subnet tier (public IP requirement) — they
+# still need a route back to the hub VPC (the NLB for SRPC).
 resource "aws_route" "region_public_to_hub" {
   count                     = local.region_dedicated_vpc ? 1 : 0
   route_table_id            = aws_route_table.region_public[0].id
@@ -120,7 +120,7 @@ resource "aws_nat_gateway" "region_nat" {
 
 # One private route table per AZ: NAT egress (if enabled) plus a route back to
 # the hub VPC over the peering connection. Only region RDS lives here now
-# (dataserv/blockserv/hdfsserv/s3gatewayserv sit in region_public for their
+# (dataserv/blockserv sit in region_public for their
 # public-IP requirement) — the hub route is currently unused but harmless to
 # keep for any future private-subnet resource that needs it.
 resource "aws_route_table" "region_private" {
@@ -160,7 +160,7 @@ resource "aws_vpc_peering_connection" "region" {
 }
 
 # Peered VPCs don't resolve each other's private DNS by default. Without this,
-# dataserv/gcserv/blockserv/gateway can't resolve the hub NLB's DNS name
+# dataserv/gcserv/blockserv can't resolve the hub NLB's DNS name
 # (aws_lb.appserv_srpc.dns_name, an internal NLB) to a private IP.
 resource "aws_vpc_peering_connection_options" "region" {
   count                     = local.region_dedicated_vpc ? 1 : 0
@@ -175,7 +175,7 @@ resource "aws_vpc_peering_connection_options" "region" {
 }
 
 # Hub-side routes back to the region VPC, one per hub private route table (one
-# per AZ), so the hub appserv fleet can reach dataserv/gcserv/blockserv/gateway.
+# per AZ), so the hub appserv fleet can reach dataserv/gcserv/blockserv.
 resource "aws_route" "hub_to_region" {
   count                     = local.region_dedicated_vpc ? length(aws_route_table.private) : 0
   route_table_id            = aws_route_table.private[count.index].id

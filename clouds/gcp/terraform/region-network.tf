@@ -48,7 +48,7 @@ resource "google_compute_subnetwork" "region_public" {
 }
 
 # No region private subnet or Cloud NAT: every region workload (dataserv,
-# blockserv, gateways) advertises a public IPv4 and lives in the public
+# blockserv) advertises a public IPv4 and lives in the public
 # subnet; the only private-subnet consumer was the removed self-hosted Vault
 # node (this package never launches Vault).
 
