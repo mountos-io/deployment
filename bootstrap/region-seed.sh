@@ -107,7 +107,11 @@ sec() { jq -er ".$1" "$secrets" || { echo "region-secrets.local.json is missing 
 # Store layer: hub_kv_get/hub_kv_put (hub store) and rkv_get/rkv_put (region
 # store), uniform JSON-object semantics; see seed-vault.sh's store layer for
 # the per-provider name encodings (they mirror mountos-servers/internal/secrets).
+# RESOURCE_PREFIX (optional, answers.env) renames the "mountos" root to
+# "mountos-<prefix>" in every encoding below, same value for hub and region.
 # ---------------------------------------------------------------------------
+name_root="mountos${RESOURCE_PREFIX:+-$RESOURCE_PREFIX}"
+
 cacert_opt=()
 [[ -n "${VAULT_CACERT:-}" ]] && cacert_opt=(--cacert "$VAULT_CACERT")
 # ${arr[@]+...}: bash 3.2 (macOS default) treats an empty array as unset under set -u.
@@ -151,14 +155,14 @@ _bind_store() {
       : "${HUB_VAULT_ADDR:?set HUB_VAULT_ADDR (or VAULT_ADDR — the hub byo Vault address)}"
       : "${HUB_VAULT_TOKEN:?export HUB_VAULT_TOKEN (or VAULT_TOKEN — hub Vault token)}"
       _check_https HUB_VAULT_ADDR "$HUB_VAULT_ADDR"
-      hub_kv_get() { _hv_req "$HUB_VAULT_TOKEN" yes "$HUB_VAULT_ADDR/v1/mountos/data/$1" | jq -c '.data.data // {}'; }
-      hub_kv_put() { jq -c '{data: .}' | _hv_req "$HUB_VAULT_TOKEN" no -X POST "$HUB_VAULT_ADDR/v1/mountos/data/$1" -d @- >/dev/null; }
+      hub_kv_get() { _hv_req "$HUB_VAULT_TOKEN" yes "$HUB_VAULT_ADDR/v1/$name_root/data/$1" | jq -c '.data.data // {}'; }
+      hub_kv_put() { jq -c '{data: .}' | _hv_req "$HUB_VAULT_TOKEN" no -X POST "$HUB_VAULT_ADDR/v1/$name_root/data/$1" -d @- >/dev/null; }
     else
       : "${REGION_VAULT_ADDR:?set REGION_VAULT_ADDR (the region byo Vault address)}"
       : "${REGION_VAULT_TOKEN:?export REGION_VAULT_TOKEN (region Vault admin/bootstrap token)}"
       _check_https REGION_VAULT_ADDR "$REGION_VAULT_ADDR"
-      rkv_get() { _hv_req "$REGION_VAULT_TOKEN" yes "$REGION_VAULT_ADDR/v1/mountos/data/$1" | jq -c '.data.data // {}'; }
-      rkv_put() { jq -c '{data: .}' | _hv_req "$REGION_VAULT_TOKEN" no -X POST "$REGION_VAULT_ADDR/v1/mountos/data/$1" -d @- >/dev/null; }
+      rkv_get() { _hv_req "$REGION_VAULT_TOKEN" yes "$REGION_VAULT_ADDR/v1/$name_root/data/$1" | jq -c '.data.data // {}'; }
+      rkv_put() { jq -c '{data: .}' | _hv_req "$REGION_VAULT_TOKEN" no -X POST "$REGION_VAULT_ADDR/v1/$name_root/data/$1" -d @- >/dev/null; }
     fi
     ;;
   aws)
@@ -169,17 +173,17 @@ _bind_store() {
     _sm_get() {
       local out
       if out="$(aws secretsmanager get-secret-value --region "$SM_REGION" \
-        --secret-id "mountos/$1" --query SecretString --output text 2>&1)"; then
-        jq -c . <<<"$out" 2>/dev/null || { echo "mountos/$1 holds non-JSON content" >&2; return 1; }
+        --secret-id "$name_root/$1" --query SecretString --output text 2>&1)"; then
+        jq -c . <<<"$out" 2>/dev/null || { echo "$name_root/$1 holds non-JSON content" >&2; return 1; }
       elif [[ "$out" == *ResourceNotFoundException* ]]; then
         printf '{}'
       else
-        echo "secretsmanager read failed for mountos/$1: $out" >&2
+        echo "secretsmanager read failed for $name_root/$1: $out" >&2
         return 1
       fi
     }
     _sm_put() {
-      local name="mountos/$1"
+      local name="$name_root/$1"
       # --secret-string file:///dev/stdin keeps the payload out of argv (ps-visible).
       if aws secretsmanager describe-secret --region "$SM_REGION" --secret-id "$name" >/dev/null 2>&1; then
         aws secretsmanager put-secret-value --region "$SM_REGION" --secret-id "$name" \
@@ -197,18 +201,18 @@ _bind_store() {
     # See _sm_get: {} ONLY on genuine not-found.
     _gsm_get() {
       local out
-      if out="$(gcloud secrets versions access latest --secret="mountos__${1//\//__}" \
+      if out="$(gcloud secrets versions access latest --secret="${name_root}__${1//\//__}" \
         --project="$VAULT_GCP_PROJECT_ID" 2>&1)"; then
-        jq -c . <<<"$out" 2>/dev/null || { echo "mountos__${1//\//__} holds non-JSON content" >&2; return 1; }
+        jq -c . <<<"$out" 2>/dev/null || { echo "${name_root}__${1//\//__} holds non-JSON content" >&2; return 1; }
       elif [[ "$out" == *NOT_FOUND* || "$out" == *"not found"* ]]; then
         printf '{}'
       else
-        echo "secret manager read failed for mountos__${1//\//__}: $out" >&2
+        echo "secret manager read failed for ${name_root}__${1//\//__}: $out" >&2
         return 1
       fi
     }
     _gsm_put() {
-      local name="mountos__${1//\//__}"
+      local name="${name_root}__${1//\//__}"
       gcloud secrets describe "$name" --project="$VAULT_GCP_PROJECT_ID" >/dev/null 2>&1 \
         || gcloud secrets create "$name" --replication-policy=automatic --project="$VAULT_GCP_PROJECT_ID" >/dev/null
       gcloud secrets versions add "$name" --data-file=- --project="$VAULT_GCP_PROJECT_ID" >/dev/null
@@ -223,19 +227,19 @@ _bind_store() {
     # See _sm_get: {} ONLY on genuine not-found.
     _akv_get() { # $1 = kv url, $2 = path
       local out
-      if out="$(az keyvault secret show --id "${1%/}/secrets/mountos--${2//\//--}" \
+      if out="$(az keyvault secret show --id "${1%/}/secrets/${name_root}--${2//\//--}" \
         --query value -o tsv 2>&1)"; then
-        jq -c . <<<"$out" 2>/dev/null || { echo "mountos--${2//\//--} holds non-JSON content" >&2; return 1; }
+        jq -c . <<<"$out" 2>/dev/null || { echo "${name_root}--${2//\//--} holds non-JSON content" >&2; return 1; }
       elif [[ "$out" == *SecretNotFound* ]]; then
         printf '{}'
       else
-        echo "key vault read failed for mountos--${2//\//--}: $out" >&2
+        echo "key vault read failed for ${name_root}--${2//\//--}: $out" >&2
         return 1
       fi
     }
     _akv_put() { # $1 = kv url, $2 = path; --file keeps the payload out of argv.
       az keyvault secret set --vault-name "$(sed -E 's#https://([^./]+)\..*#\1#' <<<"$1")" \
-        --name "mountos--${2//\//--}" --file <(cat) --encoding utf-8 >/dev/null
+        --name "${name_root}--${2//\//--}" --file <(cat) --encoding utf-8 >/dev/null
     }
     if [[ "$role" == "hub" ]]; then
       hub_kv_get() { _akv_get "$VAULT_AZURE_URL" "$@"; }
@@ -276,14 +280,14 @@ appserv_vk="$(jq -r '.appserv // empty' <<<"$hub_sv_json")"
 if [[ "$REGION_VAULT_PROVIDER" == "hashicorp" ]]; then
   echo "==> region Vault: enable KVv2 + AppRole (idempotent)"
   # Re-runs get HTTP 400 "path already in use" — expected, hence the quiet || true.
-  _hv_req "$REGION_VAULT_TOKEN" no -X POST "$REGION_VAULT_ADDR/v1/sys/mounts/mountos" -d '{"type":"kv","options":{"version":"2"}}' >/dev/null 2>&1 || true
+  _hv_req "$REGION_VAULT_TOKEN" no -X POST "$REGION_VAULT_ADDR/v1/sys/mounts/$name_root" -d '{"type":"kv","options":{"version":"2"}}' >/dev/null 2>&1 || true
   _hv_req "$REGION_VAULT_TOKEN" no -X POST "$REGION_VAULT_ADDR/v1/sys/auth/approle" -d '{"type":"approle"}' >/dev/null 2>&1 || true
   # Read everything region-scoped, plus the writes the services actually do:
   # dataserv/gcserv create+rotate per-volume credentials (s3creds/volcreds)
   # and gcserv rotates api-master — read-only here would 403 volume creation
   # at runtime (boot would still succeed, masking it).
   _hv_req "$REGION_VAULT_TOKEN" no -X PUT "$REGION_VAULT_ADDR/v1/sys/policies/acl/region" \
-    -d "$(jq -n '{policy:"path \"mountos/data/*\" { capabilities=[\"read\"] }\npath \"mountos/data/s3creds/*\" { capabilities=[\"create\",\"read\",\"update\",\"delete\"] }\npath \"mountos/data/volcreds/*\" { capabilities=[\"create\",\"read\",\"update\",\"delete\"] }\npath \"mountos/data/api-master\" { capabilities=[\"create\",\"read\",\"update\"] }"}')" >/dev/null
+    -d "$(jq -n --arg root "$name_root" '{policy: ("path \"\($root)/data/*\" { capabilities=[\"read\"] }\npath \"\($root)/data/s3creds/*\" { capabilities=[\"create\",\"read\",\"update\",\"delete\"] }\npath \"\($root)/data/volcreds/*\" { capabilities=[\"create\",\"read\",\"update\",\"delete\"] }\npath \"\($root)/data/api-master\" { capabilities=[\"create\",\"read\",\"update\"] }")}')" >/dev/null
 fi
 
 echo "==> region store: dataserv + gcserv configs (mountos_data DSN + Noise keys)"

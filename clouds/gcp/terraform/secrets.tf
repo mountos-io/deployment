@@ -10,13 +10,13 @@
 # customer key control.
 
 locals {
-  # Fixed names, referenced by both the resources below and the cloud-init
-  # templates (literal strings there, so gcp-mode plans never touch the
-  # hashicorp-gated resources).
-  hub_vault_ca_secret_name    = "mountos-hub-vault-ca"
-  appserv_secret_id_name      = "mountos-appserv-vault-secret-id"
-  region_vault_ca_secret_name = "mountos-region-vault-ca"
-  region_vault_secret_id_name = "mountos-region-vault-secret-id"
+  # Names, referenced by both the resources below and the cloud-init templates
+  # (passed through as templatefile variables, so gcp-mode plans never touch
+  # the hashicorp-gated resources).
+  hub_vault_ca_secret_name    = "${local.name_root}-hub-vault-ca"
+  appserv_secret_id_name      = "${local.name_root}-appserv-vault-secret-id"
+  region_vault_ca_secret_name = "${local.name_root}-region-vault-ca"
+  region_vault_secret_id_name = "${local.name_root}-region-vault-secret-id"
 }
 
 # ---------- byo Vault delivery (vault_provider = hashicorp only) ----------
@@ -106,7 +106,7 @@ resource "google_secret_manager_secret_version" "region_vault_secret_id" {
 
 resource "google_secret_manager_secret" "appserv_config" {
   count     = local.hub_gcp ? 1 : 0
-  secret_id = "mountos__appserv"
+  secret_id = "${local.name_root}__appserv"
   replication {
     auto {}
   }
@@ -118,7 +118,7 @@ resource "google_secret_manager_secret" "appserv_config" {
 
 resource "google_secret_manager_secret" "service_verifiers" {
   count     = local.hub_gcp || local.region_gcp ? 1 : 0
-  secret_id = "mountos__service-verifiers"
+  secret_id = "${local.name_root}__service-verifiers"
   replication {
     auto {}
   }
@@ -130,7 +130,7 @@ resource "google_secret_manager_secret" "service_verifiers" {
 
 resource "google_secret_manager_secret" "dataserv_config" {
   count     = local.region_gcp ? 1 : 0
-  secret_id = "mountos__dataserv"
+  secret_id = "${local.name_root}__dataserv"
   replication {
     auto {}
   }
@@ -142,7 +142,7 @@ resource "google_secret_manager_secret" "dataserv_config" {
 
 resource "google_secret_manager_secret" "gcserv_config" {
   count     = local.region_gcp ? 1 : 0
-  secret_id = "mountos__gcserv"
+  secret_id = "${local.name_root}__gcserv"
   replication {
     auto {}
   }
@@ -154,7 +154,7 @@ resource "google_secret_manager_secret" "gcserv_config" {
 
 resource "google_secret_manager_secret" "api_master" {
   count     = local.region_gcp ? 1 : 0
-  secret_id = "mountos__api-master"
+  secret_id = "${local.name_root}__api-master"
   replication {
     auto {}
   }
@@ -166,7 +166,7 @@ resource "google_secret_manager_secret" "api_master" {
 
 resource "google_secret_manager_secret" "blockserv_config" {
   count     = local.region_gcp ? 1 : 0
-  secret_id = "mountos__blockserv"
+  secret_id = "${local.name_root}__blockserv"
   replication {
     auto {}
   }

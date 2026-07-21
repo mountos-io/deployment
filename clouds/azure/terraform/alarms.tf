@@ -4,7 +4,7 @@
 
 resource "azurerm_monitor_action_group" "alerts" {
   count               = var.alarm_email != "" ? 1 : 0
-  name                = "mountos-alerts"
+  name                = "${local.name_root}-alerts"
   resource_group_name = azurerm_resource_group.main.name
   short_name          = "mosalerts"
 
@@ -16,7 +16,7 @@ resource "azurerm_monitor_action_group" "alerts" {
 
 resource "azurerm_monitor_metric_alert" "admin_db_storage_low" {
   count               = local.provision_pg ? 1 : 0
-  name                = "mountos-admin-db-storage-low"
+  name                = "${local.name_root}-admin-db-storage-low"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_postgresql_flexible_server.admin[0].id]
   description         = "Admin Postgres free storage below 10%."
@@ -39,7 +39,7 @@ resource "azurerm_monitor_metric_alert" "admin_db_storage_low" {
 
 resource "azurerm_monitor_metric_alert" "admin_db_cpu_high" {
   count               = local.provision_pg ? 1 : 0
-  name                = "mountos-admin-db-cpu-high"
+  name                = "${local.name_root}-admin-db-cpu-high"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_postgresql_flexible_server.admin[0].id]
   description         = "Admin Postgres CPU above 80%."
@@ -62,7 +62,7 @@ resource "azurerm_monitor_metric_alert" "admin_db_cpu_high" {
 
 resource "azurerm_monitor_metric_alert" "admin_db_connections_high" {
   count               = local.provision_pg ? 1 : 0
-  name                = "mountos-admin-db-connections-high"
+  name                = "${local.name_root}-admin-db-connections-high"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_postgresql_flexible_server.admin[0].id]
   description         = "Admin Postgres connection count sustained high."
@@ -85,7 +85,7 @@ resource "azurerm_monitor_metric_alert" "admin_db_connections_high" {
 
 resource "azurerm_monitor_metric_alert" "region_db_storage_low" {
   count               = local.region_provision_pg ? 1 : 0
-  name                = "mountos-region-db-storage-low"
+  name                = "${local.name_root}-region-db-storage-low"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_postgresql_flexible_server.region[0].id]
   description         = "Region Postgres free storage below 10%."
@@ -108,7 +108,7 @@ resource "azurerm_monitor_metric_alert" "region_db_storage_low" {
 
 resource "azurerm_monitor_metric_alert" "region_db_cpu_high" {
   count               = local.region_provision_pg ? 1 : 0
-  name                = "mountos-region-db-cpu-high"
+  name                = "${local.name_root}-region-db-cpu-high"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_postgresql_flexible_server.region[0].id]
   description         = "Region Postgres CPU above 80%."
@@ -131,7 +131,7 @@ resource "azurerm_monitor_metric_alert" "region_db_cpu_high" {
 
 resource "azurerm_monitor_metric_alert" "region_db_connections_high" {
   count               = local.region_provision_pg ? 1 : 0
-  name                = "mountos-region-db-connections-high"
+  name                = "${local.name_root}-region-db-connections-high"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_postgresql_flexible_server.region[0].id]
   description         = "Region Postgres connection count sustained high."
@@ -156,7 +156,7 @@ resource "azurerm_monitor_metric_alert" "region_db_connections_high" {
 # alb_unhealthy_hosts / GCP's instance-group current_size — the load
 # balancer's own target-health signal, not a proxy metric on the fleet itself).
 resource "azurerm_monitor_metric_alert" "appgw_unhealthy_hosts" {
-  name                = "mountos-appgw-unhealthy-hosts"
+  name                = "${local.name_root}-appgw-unhealthy-hosts"
   resource_group_name = azurerm_resource_group.main.name
   scopes              = [azurerm_application_gateway.hub.id]
   description         = "App Gateway has unhealthy appserv backend hosts."

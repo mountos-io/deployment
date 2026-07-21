@@ -1,5 +1,5 @@
 resource "aws_launch_template" "appserv" {
-  name_prefix   = "mountos-appserv-"
+  name_prefix   = "${local.name_root}-appserv-"
   image_id      = local.ami
   instance_type = var.appserv_instance_type
 
@@ -21,16 +21,17 @@ resource "aws_launch_template" "appserv" {
     vault_role_id        = var.vault_role_id
     vault_ca_source      = local.hub_vault_ca_source
     region               = var.region
+    name_root            = local.name_root
     mos_version          = var.mos_version
     mos_installer_sha256 = var.mos_installer_sha256
   }))
 
   tag_specifications {
     resource_type = "instance"
-    tags          = { Name = "mountos-appserv" }
+    tags          = { Name = "${local.name_root}-appserv" }
   }
 
-  tags = { Name = "mountos-appserv" }
+  tags = { Name = "${local.name_root}-appserv" }
 
   lifecycle {
     precondition {
@@ -45,7 +46,7 @@ resource "aws_launch_template" "appserv" {
 }
 
 resource "aws_autoscaling_group" "appserv" {
-  name_prefix         = "mountos-appserv-"
+  name_prefix         = "${local.name_root}-appserv-"
   desired_capacity    = var.appserv_count
   min_size            = var.appserv_count
   max_size            = var.appserv_count
@@ -75,7 +76,7 @@ resource "aws_autoscaling_group" "appserv" {
 
   tag {
     key                 = "Name"
-    value               = "mountos-appserv"
+    value               = "${local.name_root}-appserv"
     propagate_at_launch = true
   }
 

@@ -3,7 +3,7 @@
 # floor, not an exhaustive monitoring suite.
 
 resource "aws_sns_topic" "alerts" {
-  name = "mountos-alerts"
+  name = "${local.name_root}-alerts"
 }
 
 resource "aws_sns_topic_subscription" "email" {
@@ -16,7 +16,7 @@ resource "aws_sns_topic_subscription" "email" {
 # ---------- admin DB (hub) ----------
 resource "aws_cloudwatch_metric_alarm" "admin_rds_storage_low" {
   count               = local.provision_rds ? 1 : 0
-  alarm_name          = "mountos-admin-rds-free-storage-low"
+  alarm_name          = "${local.name_root}-admin-rds-free-storage-low"
   alarm_description   = "Admin RDS free storage below 10% of allocated."
   namespace           = "AWS/RDS"
   metric_name         = "FreeStorageSpace"
@@ -33,7 +33,7 @@ resource "aws_cloudwatch_metric_alarm" "admin_rds_storage_low" {
 
 resource "aws_cloudwatch_metric_alarm" "admin_rds_cpu_high" {
   count               = local.provision_rds ? 1 : 0
-  alarm_name          = "mountos-admin-rds-cpu-high"
+  alarm_name          = "${local.name_root}-admin-rds-cpu-high"
   alarm_description   = "Admin RDS CPU above 80%."
   namespace           = "AWS/RDS"
   metric_name         = "CPUUtilization"
@@ -50,7 +50,7 @@ resource "aws_cloudwatch_metric_alarm" "admin_rds_cpu_high" {
 
 resource "aws_cloudwatch_metric_alarm" "admin_rds_connections_high" {
   count               = local.provision_rds ? 1 : 0
-  alarm_name          = "mountos-admin-rds-connections-high"
+  alarm_name          = "${local.name_root}-admin-rds-connections-high"
   alarm_description   = "Admin RDS connection count sustained high."
   namespace           = "AWS/RDS"
   metric_name         = "DatabaseConnections"
@@ -68,7 +68,7 @@ resource "aws_cloudwatch_metric_alarm" "admin_rds_connections_high" {
 # ---------- region DB ----------
 resource "aws_cloudwatch_metric_alarm" "region_rds_storage_low" {
   count               = local.region_provision_rds ? 1 : 0
-  alarm_name          = "mountos-region-rds-free-storage-low"
+  alarm_name          = "${local.name_root}-region-rds-free-storage-low"
   alarm_description   = "Region RDS free storage below 10% of allocated."
   namespace           = "AWS/RDS"
   metric_name         = "FreeStorageSpace"
@@ -85,7 +85,7 @@ resource "aws_cloudwatch_metric_alarm" "region_rds_storage_low" {
 
 resource "aws_cloudwatch_metric_alarm" "region_rds_cpu_high" {
   count               = local.region_provision_rds ? 1 : 0
-  alarm_name          = "mountos-region-rds-cpu-high"
+  alarm_name          = "${local.name_root}-region-rds-cpu-high"
   alarm_description   = "Region RDS CPU above 80%."
   namespace           = "AWS/RDS"
   metric_name         = "CPUUtilization"
@@ -102,7 +102,7 @@ resource "aws_cloudwatch_metric_alarm" "region_rds_cpu_high" {
 
 resource "aws_cloudwatch_metric_alarm" "region_rds_connections_high" {
   count               = local.region_provision_rds ? 1 : 0
-  alarm_name          = "mountos-region-rds-connections-high"
+  alarm_name          = "${local.name_root}-region-rds-connections-high"
   alarm_description   = "Region RDS connection count sustained high."
   namespace           = "AWS/RDS"
   metric_name         = "DatabaseConnections"
@@ -119,7 +119,7 @@ resource "aws_cloudwatch_metric_alarm" "region_rds_connections_high" {
 
 # ---------- ASG in-service capacity ----------
 resource "aws_cloudwatch_metric_alarm" "appserv_in_service_low" {
-  alarm_name          = "mountos-appserv-in-service-low"
+  alarm_name          = "${local.name_root}-appserv-in-service-low"
   alarm_description   = "appserv in-service instances below desired."
   namespace           = "AWS/AutoScaling"
   metric_name         = "GroupInServiceInstances"
@@ -135,7 +135,7 @@ resource "aws_cloudwatch_metric_alarm" "appserv_in_service_low" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "dataserv_in_service_low" {
-  alarm_name          = "mountos-dataserv-in-service-low"
+  alarm_name          = "${local.name_root}-dataserv-in-service-low"
   alarm_description   = "dataserv in-service instances below desired."
   namespace           = "AWS/AutoScaling"
   metric_name         = "GroupInServiceInstances"
@@ -152,7 +152,7 @@ resource "aws_cloudwatch_metric_alarm" "dataserv_in_service_low" {
 
 # ---------- load-balancer target health ----------
 resource "aws_cloudwatch_metric_alarm" "alb_unhealthy_hosts" {
-  alarm_name          = "mountos-alb-unhealthy-hosts"
+  alarm_name          = "${local.name_root}-alb-unhealthy-hosts"
   alarm_description   = "ALB has unhealthy appserv HTTP targets."
   namespace           = "AWS/ApplicationELB"
   metric_name         = "UnHealthyHostCount"
@@ -171,7 +171,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_unhealthy_hosts" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "nlb_unhealthy_hosts" {
-  alarm_name          = "mountos-nlb-unhealthy-hosts"
+  alarm_name          = "${local.name_root}-nlb-unhealthy-hosts"
   alarm_description   = "NLB has unhealthy appserv SRPC targets."
   namespace           = "AWS/NetworkELB"
   metric_name         = "UnHealthyHostCount"

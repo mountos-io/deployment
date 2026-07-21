@@ -34,10 +34,10 @@ provider "azurerm" {
 # resource lives in an explicit resource group, unlike AWS/GCP where the
 # account/project is ambient. One resource group holds the whole deployment.
 resource "azurerm_resource_group" "main" {
-  name     = "mountos"
+  name     = local.name_root
   location = var.region
   tags = {
-    project     = "mountos"
+    project     = local.name_root
     managed-by  = "terraform"
     environment = var.mode
   }

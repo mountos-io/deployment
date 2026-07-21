@@ -7,7 +7,7 @@ variable "appgw_subnet_cidr" {
 }
 
 resource "azurerm_subnet" "appgw" {
-  name                 = "mountos-appgw"
+  name                 = "${local.name_root}-appgw"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.appgw_subnet_cidr]
@@ -19,7 +19,7 @@ resource "azurerm_subnet" "appgw" {
 # NO inbound restriction whatsoever (client_cidr was never actually applied
 # to the internet-facing hub entrypoint, unlike AWS's ALB security group).
 resource "azurerm_network_security_group" "appgw" {
-  name                = "mountos-appgw"
+  name                = "${local.name_root}-appgw"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
@@ -74,7 +74,7 @@ resource "azurerm_subnet_network_security_group_association" "appgw" {
 }
 
 resource "azurerm_public_ip" "appgw" {
-  name                = "mountos-appgw"
+  name                = "${local.name_root}-appgw"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   allocation_method   = "Static"
@@ -87,13 +87,13 @@ resource "azurerm_public_ip" "appgw" {
 # Secrets User) on whichever Key Vault holds hub_certificate_secret_id —
 # Terraform cannot infer that vault's scope reliably from a bare secret id.
 resource "azurerm_user_assigned_identity" "appgw" {
-  name                = "mountos-appgw"
+  name                = "${local.name_root}-appgw"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
 
 resource "azurerm_application_gateway" "hub" {
-  name                = "mountos-appserv"
+  name                = "${local.name_root}-appserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 
@@ -192,7 +192,7 @@ output "appgw_ip" {
 # Internal: the SRPC control plane must not be internet-facing. Region services
 # reach it from inside the VNet.
 resource "azurerm_lb" "appserv_srpc" {
-  name                = "mountos-appserv-srpc"
+  name                = "${local.name_root}-appserv-srpc"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Standard"

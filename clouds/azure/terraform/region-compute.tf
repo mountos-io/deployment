@@ -4,7 +4,7 @@
 # region-cloud-init).
 
 resource "azurerm_public_ip_prefix" "dataserv" {
-  name                = "mountos-dataserv"
+  name                = "${local.name_root}-dataserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   prefix_length       = 28 # 16 addresses, enough headroom for dataserv_count + rolling updates
@@ -12,7 +12,7 @@ resource "azurerm_public_ip_prefix" "dataserv" {
 }
 
 resource "azurerm_linux_virtual_machine_scale_set" "dataserv" {
-  name                = "mountos-dataserv"
+  name                = "${local.name_root}-dataserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = var.dataserv_vm_size
@@ -62,7 +62,7 @@ resource "azurerm_linux_virtual_machine_scale_set" "dataserv" {
   }
 
   network_interface {
-    name                      = "mountos-dataserv"
+    name                      = "${local.name_root}-dataserv"
     primary                   = true
     network_security_group_id = local.region_nsg_id
 
@@ -84,8 +84,8 @@ resource "azurerm_linux_virtual_machine_scale_set" "dataserv" {
     vault_role_id           = var.region_vault_role_id
     vault_ca_source         = local.region_vault_ca_source
     key_vault_uri           = azurerm_key_vault.region.vault_uri
-    region_vault_ca_secret  = "mountos-region-vault-ca"
-    region_secret_id_secret = "mountos-region-vault-secret-id"
+    region_vault_ca_secret  = "${local.name_root}-region-vault-ca"
+    region_secret_id_secret = "${local.name_root}-region-vault-secret-id"
     identity_client_id      = azurerm_user_assigned_identity.dataserv.client_id
     region_cluster_id       = var.region_cluster_id
     srpc_addr               = "${azurerm_lb.appserv_srpc.frontend_ip_configuration[0].private_ip_address}:9443"

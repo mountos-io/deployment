@@ -16,8 +16,18 @@ resource "random_id" "vault_suffix" {
   byte_length = 4
 }
 
+locals {
+  # Key Vault names are capped at 24 chars by Azure and are already globally
+  # unique via random_id, so only a short slice of resource_prefix fits here
+  # (mountos + "-XXX" + "-hub-"/"-rgn-" + 8 hex chars = 24 at most). Every
+  # secret name INSIDE the vault still carries the full prefix (see
+  # iam.tf/region-iam.tf) — that is what actually prevents collisions, this
+  # is only for operator-visible recognition of which deployment owns it.
+  kv_name_prefix = var.resource_prefix != "" ? "-${substr(var.resource_prefix, 0, 3)}" : ""
+}
+
 resource "azurerm_key_vault" "hub" {
-  name                       = "mountos-hub-${random_id.vault_suffix.hex}" # globally unique
+  name                       = "mountos${local.kv_name_prefix}-hub-${random_id.vault_suffix.hex}" # globally unique
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
@@ -28,7 +38,7 @@ resource "azurerm_key_vault" "hub" {
 }
 
 resource "azurerm_key_vault" "region" {
-  name                       = "mountos-rgn-${random_id.vault_suffix.hex}"
+  name                       = "mountos${local.kv_name_prefix}-rgn-${random_id.vault_suffix.hex}"
   resource_group_name        = azurerm_resource_group.main.name
   location                   = azurerm_resource_group.main.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id

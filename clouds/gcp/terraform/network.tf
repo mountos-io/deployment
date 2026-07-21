@@ -29,20 +29,20 @@ locals {
 }
 
 resource "google_compute_network" "main" {
-  name                    = "mountos"
+  name                    = local.name_root
   auto_create_subnetworks = false
   routing_mode            = "REGIONAL"
 }
 
 resource "google_compute_subnetwork" "public" {
-  name          = "mountos-public"
+  name          = "${local.name_root}-public"
   network       = google_compute_network.main.id
   ip_cidr_range = var.vpc_cidr_public
   region        = var.region
 }
 
 resource "google_compute_subnetwork" "private" {
-  name                     = "mountos-private"
+  name                     = "${local.name_root}-private"
   network                  = google_compute_network.main.id
   ip_cidr_range            = var.vpc_cidr_private
   region                   = var.region
@@ -52,13 +52,13 @@ resource "google_compute_subnetwork" "private" {
 # Cloud NAT for the private subnet's egress (n.sh installer, package fetches,
 # Vault/API calls out). Public-subnet instances use their own external IP.
 resource "google_compute_router" "nat" {
-  name    = "mountos-nat-router"
+  name    = "${local.name_root}-nat-router"
   network = google_compute_network.main.id
   region  = var.region
 }
 
 resource "google_compute_router_nat" "nat" {
-  name                               = "mountos-nat"
+  name                               = "${local.name_root}-nat"
   router                             = google_compute_router.nat.name
   region                             = var.region
   nat_ip_allocate_option             = "AUTO_ONLY"

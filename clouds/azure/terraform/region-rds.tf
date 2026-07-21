@@ -16,7 +16,7 @@ resource "random_password" "region_db" {
 # ever gets per-secret grants, keeping this out of every service's reach.
 resource "azurerm_key_vault_secret" "region_db_password" {
   count        = local.region_provision_pg ? 1 : 0
-  name         = "mountos-region-db-password"
+  name         = "${local.name_root}-region-db-password"
   value        = random_password.region_db[0].result
   key_vault_id = azurerm_key_vault.hub.id
 }
@@ -25,7 +25,7 @@ resource "azurerm_key_vault_secret" "region_db_password" {
 # other resources (shared: hub VNet; dedicated: region VNet).
 resource "azurerm_subnet" "region_db" {
   count                = local.region_provision_pg ? 1 : 0
-  name                 = "mountos-region-db"
+  name                 = "${local.name_root}-region-db"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = local.region_dedicated_vnet ? azurerm_virtual_network.region[0].name : azurerm_virtual_network.main.name
   address_prefixes     = [local.region_dedicated_vnet ? "10.1.20.0/24" : "10.0.21.0/24"]
@@ -41,13 +41,13 @@ resource "azurerm_subnet" "region_db" {
 
 resource "azurerm_private_dns_zone" "region_db" {
   count               = local.region_provision_pg ? 1 : 0
-  name                = "mountos-region.postgres.database.azure.com"
+  name                = "${local.name_root}-region.postgres.database.azure.com"
   resource_group_name = azurerm_resource_group.main.name
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "region_db" {
   count                 = local.region_provision_pg ? 1 : 0
-  name                  = "mountos-region-db-link"
+  name                  = "${local.name_root}-region-db-link"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.region_db[0].name
   virtual_network_id    = local.region_network
@@ -55,7 +55,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "region_db" {
 
 resource "azurerm_postgresql_flexible_server" "region" {
   count                  = local.region_provision_pg ? 1 : 0
-  name                   = "mountos-region"
+  name                   = "${local.name_root}-region"
   resource_group_name    = azurerm_resource_group.main.name
   location               = azurerm_resource_group.main.location
   version                = var.region_db_provider_version

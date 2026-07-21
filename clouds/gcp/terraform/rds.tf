@@ -16,7 +16,7 @@ resource "random_password" "admin_db" {
 
 resource "google_secret_manager_secret" "admin_db_password" {
   count     = local.provision_sql ? 1 : 0
-  secret_id = "mountos-admin-db-password"
+  secret_id = "${local.name_root}-admin-db-password"
   # replication.auto, not CMEK: see secrets.tf's header comment for why.
   replication {
     auto {}
@@ -31,7 +31,7 @@ resource "google_secret_manager_secret_version" "admin_db_password" {
 
 resource "google_sql_database_instance" "admin" {
   count               = local.provision_sql ? 1 : 0
-  name                = "mountos-admin"
+  name                = "${local.name_root}-admin"
   database_version    = var.admin_db_provider_version
   region              = var.region
   deletion_protection = var.mode == "production"
@@ -81,7 +81,7 @@ resource "google_sql_user" "admin" {
 # Cloud SQL private IP requires a VPC peering range reserved for Google's
 # managed services (shared by admin + region SQL instances).
 resource "google_compute_global_address" "private_services" {
-  name          = "mountos-private-services"
+  name          = "${local.name_root}-private-services"
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"
   prefix_length = 16

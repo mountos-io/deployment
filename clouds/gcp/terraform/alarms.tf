@@ -15,7 +15,7 @@
 
 resource "google_monitoring_notification_channel" "email" {
   count        = var.alarm_email != "" ? 1 : 0
-  display_name = "mountos-alerts"
+  display_name = "${local.name_root}-alerts"
   type         = "email"
   labels = {
     email_address = var.alarm_email
@@ -24,7 +24,7 @@ resource "google_monitoring_notification_channel" "email" {
 
 resource "google_monitoring_alert_policy" "admin_sql_storage_low" {
   count        = local.provision_sql ? 1 : 0
-  display_name = "mountos-admin-sql-free-storage-low"
+  display_name = "${local.name_root}-admin-sql-free-storage-low"
   combiner     = "OR"
   conditions {
     display_name = "Admin Cloud SQL free storage below 10%"
@@ -44,7 +44,7 @@ resource "google_monitoring_alert_policy" "admin_sql_storage_low" {
 
 resource "google_monitoring_alert_policy" "admin_sql_cpu_high" {
   count        = local.provision_sql ? 1 : 0
-  display_name = "mountos-admin-sql-cpu-high"
+  display_name = "${local.name_root}-admin-sql-cpu-high"
   combiner     = "OR"
   conditions {
     display_name = "Admin Cloud SQL CPU above 80%"
@@ -64,7 +64,7 @@ resource "google_monitoring_alert_policy" "admin_sql_cpu_high" {
 
 resource "google_monitoring_alert_policy" "admin_sql_connections_high" {
   count        = local.provision_sql ? 1 : 0
-  display_name = "mountos-admin-sql-connections-high"
+  display_name = "${local.name_root}-admin-sql-connections-high"
   combiner     = "OR"
   conditions {
     display_name = "Admin Cloud SQL connection count sustained high"
@@ -84,7 +84,7 @@ resource "google_monitoring_alert_policy" "admin_sql_connections_high" {
 
 resource "google_monitoring_alert_policy" "region_sql_storage_low" {
   count        = local.region_provision_sql ? 1 : 0
-  display_name = "mountos-region-sql-free-storage-low"
+  display_name = "${local.name_root}-region-sql-free-storage-low"
   combiner     = "OR"
   conditions {
     display_name = "Region Cloud SQL free storage below 10%"
@@ -104,7 +104,7 @@ resource "google_monitoring_alert_policy" "region_sql_storage_low" {
 
 resource "google_monitoring_alert_policy" "region_sql_cpu_high" {
   count        = local.region_provision_sql ? 1 : 0
-  display_name = "mountos-region-sql-cpu-high"
+  display_name = "${local.name_root}-region-sql-cpu-high"
   combiner     = "OR"
   conditions {
     display_name = "Region Cloud SQL CPU above 80%"
@@ -124,7 +124,7 @@ resource "google_monitoring_alert_policy" "region_sql_cpu_high" {
 
 resource "google_monitoring_alert_policy" "region_sql_connections_high" {
   count        = local.region_provision_sql ? 1 : 0
-  display_name = "mountos-region-sql-connections-high"
+  display_name = "${local.name_root}-region-sql-connections-high"
   combiner     = "OR"
   conditions {
     display_name = "Region Cloud SQL connection count sustained high"

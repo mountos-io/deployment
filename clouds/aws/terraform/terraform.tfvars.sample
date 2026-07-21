@@ -3,6 +3,11 @@
 region = "us-east-1"
 mode   = "production"
 
+# Set only if this AWS account/region already hosts another mountOS deployment,
+# to avoid colliding on the shared "mountos" resource/secret namespace. Must
+# match VAULT_RESOURCE_PREFIX on every service in this deployment.
+resource_prefix = ""
+
 # Public hub. Clients reach https://<hub_domain>; region services reach srpc.<hub_domain>:9443.
 hub_domain = "" # REQUIRED — your real public FQDN, e.g. hub.acme.com (placeholders are rejected)
 

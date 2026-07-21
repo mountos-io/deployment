@@ -47,7 +47,7 @@ locals {
 
 resource "azurerm_virtual_network" "region" {
   count               = local.region_dedicated_vnet ? 1 : 0
-  name                = "mountos-region"
+  name                = "${local.name_root}-region"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   address_space       = [var.region_vnet_cidr]
@@ -55,7 +55,7 @@ resource "azurerm_virtual_network" "region" {
 
 resource "azurerm_subnet" "region_public" {
   count                = local.region_dedicated_vnet ? 1 : 0
-  name                 = "mountos-region-public"
+  name                 = "${local.name_root}-region-public"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.region[0].name
   address_prefixes     = [var.region_vnet_cidr_public]
@@ -63,7 +63,7 @@ resource "azurerm_subnet" "region_public" {
 
 resource "azurerm_subnet" "region_private" {
   count                = local.region_dedicated_vnet ? 1 : 0
-  name                 = "mountos-region-private"
+  name                 = "${local.name_root}-region-private"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.region[0].name
   address_prefixes     = [var.region_vnet_cidr_private]
@@ -71,7 +71,7 @@ resource "azurerm_subnet" "region_private" {
 
 resource "azurerm_public_ip" "region_nat" {
   count               = local.region_dedicated_vnet ? 1 : 0
-  name                = "mountos-region-nat"
+  name                = "${local.name_root}-region-nat"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   allocation_method   = "Static"
@@ -81,7 +81,7 @@ resource "azurerm_public_ip" "region_nat" {
 
 resource "azurerm_nat_gateway" "region_nat" {
   count               = local.region_dedicated_vnet ? 1 : 0
-  name                = "mountos-region-nat"
+  name                = "${local.name_root}-region-nat"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku_name            = "Standard"
@@ -102,7 +102,7 @@ resource "azurerm_subnet_nat_gateway_association" "region_private" {
 # Both directions required — same as GCP, unlike AWS's single peering resource.
 resource "azurerm_virtual_network_peering" "hub_to_region" {
   count                        = local.region_dedicated_vnet ? 1 : 0
-  name                         = "mountos-hub-to-region"
+  name                         = "${local.name_root}-hub-to-region"
   resource_group_name          = azurerm_resource_group.main.name
   virtual_network_name         = azurerm_virtual_network.main.name
   remote_virtual_network_id    = azurerm_virtual_network.region[0].id
@@ -112,7 +112,7 @@ resource "azurerm_virtual_network_peering" "hub_to_region" {
 
 resource "azurerm_virtual_network_peering" "region_to_hub" {
   count                        = local.region_dedicated_vnet ? 1 : 0
-  name                         = "mountos-region-to-hub"
+  name                         = "${local.name_root}-region-to-hub"
   resource_group_name          = azurerm_resource_group.main.name
   virtual_network_name         = azurerm_virtual_network.region[0].name
   remote_virtual_network_id    = azurerm_virtual_network.main.id

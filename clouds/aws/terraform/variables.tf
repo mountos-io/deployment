@@ -11,6 +11,16 @@ variable "mode" {
   }
 }
 
+variable "resource_prefix" {
+  type        = string
+  description = "Optional resource-namespace prefix (1-11 lowercase alphanumeric/hyphen chars). Set when this AWS account/region already hosts another mountOS deployment, so secret paths and provisioned resource names don't collide. Must match the VAULT_RESOURCE_PREFIX env var used by every service in this deployment."
+  default     = ""
+  validation {
+    condition     = var.resource_prefix == "" || can(regex("^[a-z0-9]([a-z0-9-]{0,9}[a-z0-9])?$", var.resource_prefix))
+    error_message = "resource_prefix must be empty or 1-11 lowercase alphanumeric/hyphen characters, not starting or ending with a hyphen (bounded by the AWS ALB/NLB 32-char name cap)."
+  }
+}
+
 variable "hub_domain" {
   type        = string
   description = "Public hub FQDN (e.g. hub.acme.com). REQUIRED — clients reach https://<hub_domain>."
@@ -71,7 +81,7 @@ variable "db_username" {
 # "embedded" use). Two supported providers:
 #   aws (RECOMMENDED)  cloud-native AWS Secrets Manager — platform-managed HA,
 #                      instance-role auth, no AppRole/CA machinery; the seed
-#                      scripts write the initial mountos/* secrets.
+#                      scripts write the initial <name_root>/* secrets.
 #   hashicorp (byo)    the operator brings a Vault (HCP Vault Dedicated or
 #                      their own cluster) and supplies vault_addr; the seed
 #                      scripts only create mounts/policies/AppRole/values.
@@ -147,6 +157,9 @@ variable "hub_certificate_arn" {
 locals {
   provision_rds = var.admin_db_mode == "provision-rds"
   hub_hashicorp = var.vault_provider == "hashicorp"
+  # Root token for every provisioned resource name / secret path. Empty
+  # resource_prefix keeps names byte-identical to the unprefixed default.
+  name_root = var.resource_prefix != "" ? "mountos-${var.resource_prefix}" : "mountos"
   # ssm: instances fetch the byo Vault's private CA from SSM (published by
   # Terraform from vault_ca_pem). system: byo Vault with a publicly-trusted
   # cert — no CA fetch, no VAULT_CACERT. Unused by the aws provider.

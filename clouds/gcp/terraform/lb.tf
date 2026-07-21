@@ -1,20 +1,20 @@
 # ---------- external Global HTTPS LB (client-facing hub) ----------
 resource "google_compute_global_address" "appserv" {
-  name = "mountos-appserv"
+  name = "${local.name_root}-appserv"
 }
 
 # Google-managed cert, DNS-validated automatically, only when dns_zone_name is
 # supplied. Otherwise the operator must attach an existing cert (hub_certificate_id).
 resource "google_compute_managed_ssl_certificate" "hub" {
   count = var.dns_zone_name != "" ? 1 : 0
-  name  = "mountos-hub"
+  name  = "${local.name_root}-hub"
   managed {
     domains = [var.hub_domain]
   }
 }
 
 resource "google_compute_backend_service" "appserv_http" {
-  name                  = "mountos-appserv-http"
+  name                  = "${local.name_root}-appserv-http"
   protocol              = "HTTPS"
   port_name             = "https"
   load_balancing_scheme = "EXTERNAL_MANAGED"
@@ -26,12 +26,12 @@ resource "google_compute_backend_service" "appserv_http" {
 }
 
 resource "google_compute_url_map" "appserv" {
-  name            = "mountos-appserv"
+  name            = "${local.name_root}-appserv"
   default_service = google_compute_backend_service.appserv_http.id
 }
 
 resource "google_compute_target_https_proxy" "appserv" {
-  name             = "mountos-appserv"
+  name             = "${local.name_root}-appserv"
   url_map          = google_compute_url_map.appserv.id
   ssl_certificates = var.dns_zone_name != "" ? [google_compute_managed_ssl_certificate.hub[0].id] : [var.hub_certificate_id]
 
@@ -44,7 +44,7 @@ resource "google_compute_target_https_proxy" "appserv" {
 }
 
 resource "google_compute_global_forwarding_rule" "appserv_https" {
-  name                  = "mountos-appserv-https"
+  name                  = "${local.name_root}-appserv-https"
   ip_address            = google_compute_global_address.appserv.id
   port_range            = "443"
   target                = google_compute_target_https_proxy.appserv.id
@@ -56,7 +56,7 @@ resource "google_compute_global_forwarding_rule" "appserv_https" {
 # reach it from inside the VPC (preserves the original client source IP, unlike
 # the external LB above).
 resource "google_compute_region_backend_service" "appserv_srpc" {
-  name                  = "mountos-appserv-srpc"
+  name                  = "${local.name_root}-appserv-srpc"
   region                = var.region
   protocol              = "TCP"
   load_balancing_scheme = "INTERNAL"
@@ -68,7 +68,7 @@ resource "google_compute_region_backend_service" "appserv_srpc" {
 }
 
 resource "google_compute_health_check" "appserv_srpc" {
-  name = "mountos-appserv-srpc"
+  name = "${local.name_root}-appserv-srpc"
   tcp_health_check {
     port = 9443
   }
@@ -79,7 +79,7 @@ resource "google_compute_health_check" "appserv_srpc" {
 }
 
 resource "google_compute_forwarding_rule" "appserv_srpc" {
-  name                  = "mountos-appserv-srpc"
+  name                  = "${local.name_root}-appserv-srpc"
   region                = var.region
   ip_protocol           = "TCP"
   ports                 = ["9443"]

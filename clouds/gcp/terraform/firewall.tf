@@ -46,7 +46,7 @@ locals {
 
 resource "google_compute_firewall" "iap_ssh_hub" {
   count         = var.iap_ssh_enable ? 1 : 0
-  name          = "mountos-iap-ssh-hub"
+  name          = "${local.name_root}-iap-ssh-hub"
   network       = google_compute_network.main.id
   direction     = "INGRESS"
   target_tags   = local.all_tags
@@ -59,7 +59,7 @@ resource "google_compute_firewall" "iap_ssh_hub" {
 
 resource "google_compute_firewall" "iap_ssh_region" {
   count         = var.iap_ssh_enable && local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-iap-ssh-region"
+  name          = "${local.name_root}-iap-ssh-region"
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = local.all_tags
@@ -73,7 +73,7 @@ resource "google_compute_firewall" "iap_ssh_region" {
 # ---------- default egress: allow all, both networks (GCP firewalls don't
 # cascade across a peering boundary — each network needs its own rule) ----------
 resource "google_compute_firewall" "egress_all" {
-  name      = "mountos-egress-all"
+  name      = "${local.name_root}-egress-all"
   network   = google_compute_network.main.id
   direction = "EGRESS"
   priority  = 65534
@@ -85,7 +85,7 @@ resource "google_compute_firewall" "egress_all" {
 
 resource "google_compute_firewall" "egress_all_region" {
   count     = local.region_dedicated_vpc ? 1 : 0
-  name      = "mountos-region-egress-all"
+  name      = "${local.name_root}-region-egress-all"
   network   = google_compute_network.region[0].id
   direction = "EGRESS"
   priority  = 65534
@@ -97,7 +97,7 @@ resource "google_compute_firewall" "egress_all_region" {
 
 # ---------- appserv ingress (hub network) ----------
 resource "google_compute_firewall" "appserv_https_from_lb" {
-  name          = "mountos-appserv-https-from-lb"
+  name          = "${local.name_root}-appserv-https-from-lb"
   network       = google_compute_network.main.id
   direction     = "INGRESS"
   target_tags   = ["mountos-appserv"]
@@ -116,7 +116,7 @@ resource "google_compute_firewall" "appserv_https_from_lb" {
 # network), since tags don't match across the peering boundary.
 resource "google_compute_firewall" "appserv_srpc_from_dataserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-appserv-srpc-from-dataserv"
+  name        = "${local.name_root}-appserv-srpc-from-dataserv"
   network     = google_compute_network.main.id
   direction   = "INGRESS"
   target_tags = ["mountos-appserv"]
@@ -129,7 +129,7 @@ resource "google_compute_firewall" "appserv_srpc_from_dataserv" {
 
 resource "google_compute_firewall" "appserv_srpc_from_gcserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-appserv-srpc-from-gcserv"
+  name        = "${local.name_root}-appserv-srpc-from-gcserv"
   network     = google_compute_network.main.id
   direction   = "INGRESS"
   target_tags = ["mountos-appserv"]
@@ -142,7 +142,7 @@ resource "google_compute_firewall" "appserv_srpc_from_gcserv" {
 
 resource "google_compute_firewall" "appserv_srpc_from_blockserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-appserv-srpc-from-blockserv"
+  name        = "${local.name_root}-appserv-srpc-from-blockserv"
   network     = google_compute_network.main.id
   direction   = "INGRESS"
   target_tags = ["mountos-appserv"]
@@ -158,7 +158,7 @@ resource "google_compute_firewall" "appserv_srpc_from_blockserv" {
 # region workload advertises a public IPv4).
 resource "google_compute_firewall" "appserv_srpc_from_region_cidr" {
   count         = local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-appserv-srpc-from-region-cidr"
+  name          = "${local.name_root}-appserv-srpc-from-region-cidr"
   network       = google_compute_network.main.id
   direction     = "INGRESS"
   target_tags   = ["mountos-appserv"]
@@ -174,7 +174,7 @@ resource "google_compute_firewall" "appserv_srpc_from_region_cidr" {
 # this rule every SRPC backend stays permanently unhealthy. The 8443 HTTPS LB
 # probe is covered by appserv_https_from_lb above (same source ranges).
 resource "google_compute_firewall" "appserv_srpc_health_check" {
-  name          = "mountos-appserv-srpc-health-check"
+  name          = "${local.name_root}-appserv-srpc-health-check"
   network       = google_compute_network.main.id
   direction     = "INGRESS"
   target_tags   = ["mountos-appserv"]
@@ -187,7 +187,7 @@ resource "google_compute_firewall" "appserv_srpc_health_check" {
 
 # ---------- dataserv ingress (region network) ----------
 resource "google_compute_firewall" "dataserv_client" {
-  name          = "mountos-dataserv-client"
+  name          = "${local.name_root}-dataserv-client"
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = ["mountos-dataserv"]
@@ -205,7 +205,7 @@ resource "google_compute_firewall" "dataserv_client" {
 # auto-heals in an endless recreate loop. dataserv isn't LB-fronted, so this
 # was missing (only appserv's LB-fronted ports had a health-check rule).
 resource "google_compute_firewall" "dataserv_health_check" {
-  name          = "mountos-dataserv-health-check"
+  name          = "${local.name_root}-dataserv-health-check"
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = ["mountos-dataserv"]
@@ -217,7 +217,7 @@ resource "google_compute_firewall" "dataserv_health_check" {
 }
 
 resource "google_compute_firewall" "dataserv_raft_self" {
-  name        = "mountos-dataserv-raft-self"
+  name        = "${local.name_root}-dataserv-raft-self"
   network     = local.region_network
   direction   = "INGRESS"
   target_tags = ["mountos-dataserv"]
@@ -230,7 +230,7 @@ resource "google_compute_firewall" "dataserv_raft_self" {
 
 resource "google_compute_firewall" "dataserv_srpc_from_appserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-dataserv-srpc-from-appserv"
+  name        = "${local.name_root}-dataserv-srpc-from-appserv"
   network     = local.region_network
   direction   = "INGRESS"
   target_tags = ["mountos-dataserv"]
@@ -243,7 +243,7 @@ resource "google_compute_firewall" "dataserv_srpc_from_appserv" {
 
 resource "google_compute_firewall" "dataserv_srpc_from_appserv_cidr" {
   count         = local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-dataserv-srpc-from-appserv-cidr"
+  name          = "${local.name_root}-dataserv-srpc-from-appserv-cidr"
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = ["mountos-dataserv"]
@@ -257,7 +257,7 @@ resource "google_compute_firewall" "dataserv_srpc_from_appserv_cidr" {
 # ---------- gcserv ingress (region network; standalone only, co-located needs none) ----------
 resource "google_compute_firewall" "gcserv_srpc_from_appserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-gcserv-srpc-from-appserv"
+  name        = "${local.name_root}-gcserv-srpc-from-appserv"
   network     = local.region_network
   direction   = "INGRESS"
   target_tags = ["mountos-gcserv"]
@@ -270,7 +270,7 @@ resource "google_compute_firewall" "gcserv_srpc_from_appserv" {
 
 resource "google_compute_firewall" "gcserv_srpc_from_appserv_cidr" {
   count         = local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-gcserv-srpc-from-appserv-cidr"
+  name          = "${local.name_root}-gcserv-srpc-from-appserv-cidr"
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = ["mountos-gcserv"]
@@ -283,7 +283,7 @@ resource "google_compute_firewall" "gcserv_srpc_from_appserv_cidr" {
 
 # ---------- blockserv ingress (region network) ----------
 resource "google_compute_firewall" "blockserv_client" {
-  name          = "mountos-blockserv-client"
+  name          = "${local.name_root}-blockserv-client"
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = ["mountos-blockserv"]
@@ -295,7 +295,7 @@ resource "google_compute_firewall" "blockserv_client" {
 }
 
 resource "google_compute_firewall" "blockserv_peer_self" {
-  name        = "mountos-blockserv-peer-self"
+  name        = "${local.name_root}-blockserv-peer-self"
   network     = local.region_network
   direction   = "INGRESS"
   target_tags = ["mountos-blockserv"]
@@ -308,7 +308,7 @@ resource "google_compute_firewall" "blockserv_peer_self" {
 
 resource "google_compute_firewall" "blockserv_srpc_from_appserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
-  name        = "mountos-blockserv-srpc-from-appserv"
+  name        = "${local.name_root}-blockserv-srpc-from-appserv"
   network     = local.region_network
   direction   = "INGRESS"
   target_tags = ["mountos-blockserv"]
@@ -321,7 +321,7 @@ resource "google_compute_firewall" "blockserv_srpc_from_appserv" {
 
 resource "google_compute_firewall" "blockserv_srpc_from_appserv_cidr" {
   count         = local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-blockserv-srpc-from-appserv-cidr"
+  name          = "${local.name_root}-blockserv-srpc-from-appserv-cidr"
   network       = local.region_network
   direction     = "INGRESS"
   target_tags   = ["mountos-blockserv"]

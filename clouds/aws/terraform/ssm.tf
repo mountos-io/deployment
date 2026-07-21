@@ -3,20 +3,20 @@
 # apply before the seed runs the param is absent and cloud-init tolerates it.
 resource "aws_ssm_parameter" "appserv_secret_id" {
   count  = local.hub_hashicorp && var.vault_secret_id != "" ? 1 : 0
-  name   = "/mountos/appserv/vault-secret-id"
+  name   = "/${local.name_root}/appserv/vault-secret-id"
   type   = "SecureString"
   value  = var.vault_secret_id
   key_id = aws_kms_key.hub.arn
-  tags   = { Name = "mountos-appserv-secret-id" }
+  tags   = { Name = "${local.name_root}-appserv-secret-id" }
 }
 
 resource "aws_ssm_parameter" "region_secret_id" {
   count  = local.region_hashicorp && var.region_vault_secret_id != "" ? 1 : 0
-  name   = "/mountos/region/vault-secret-id"
+  name   = "/${local.name_root}/region/vault-secret-id"
   type   = "SecureString"
   value  = var.region_vault_secret_id
   key_id = aws_kms_key.region.arn
-  tags   = { Name = "mountos-region-secret-id" }
+  tags   = { Name = "${local.name_root}-region-secret-id" }
 }
 
 # byo Vault with a PRIVATE CA (hashicorp provider only): Terraform publishes
@@ -26,18 +26,18 @@ resource "aws_ssm_parameter" "region_secret_id" {
 # Standard-tier value cap.
 resource "aws_ssm_parameter" "hub_vault_ca_byo" {
   count = local.hub_hashicorp && var.vault_ca_pem != "" ? 1 : 0
-  name  = "/mountos/hub/vault-ca"
+  name  = "/${local.name_root}/hub/vault-ca"
   type  = "String"
   tier  = "Intelligent-Tiering"
   value = var.vault_ca_pem
-  tags  = { Name = "mountos-hub-vault-ca" }
+  tags  = { Name = "${local.name_root}-hub-vault-ca" }
 }
 
 resource "aws_ssm_parameter" "region_vault_ca_byo" {
   count = local.region_hashicorp && var.region_vault_ca_pem != "" ? 1 : 0
-  name  = "/mountos/region/vault-ca"
+  name  = "/${local.name_root}/region/vault-ca"
   type  = "String"
   tier  = "Intelligent-Tiering"
   value = var.region_vault_ca_pem
-  tags  = { Name = "mountos-region-vault-ca" }
+  tags  = { Name = "${local.name_root}-region-vault-ca" }
 }

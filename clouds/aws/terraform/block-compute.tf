@@ -11,9 +11,9 @@
 # ---------- blockserv IAM: SSM only; no KMS ----------
 resource "aws_iam_role" "blockserv" {
   count              = var.block_enable ? 1 : 0
-  name               = "mountos-blockserv"
+  name               = "${local.name_root}-blockserv"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
-  tags               = { Name = "mountos-blockserv" }
+  tags               = { Name = "${local.name_root}-blockserv" }
 }
 
 resource "aws_iam_role_policy_attachment" "blockserv_ssm" {
@@ -24,7 +24,7 @@ resource "aws_iam_role_policy_attachment" "blockserv_ssm" {
 
 resource "aws_iam_instance_profile" "blockserv" {
   count = var.block_enable ? 1 : 0
-  name  = "mountos-blockserv"
+  name  = "${local.name_root}-blockserv"
   role  = aws_iam_role.blockserv[0].name
 }
 
@@ -33,8 +33,8 @@ data "aws_iam_policy_document" "blockserv_secret_id" {
   statement {
     actions = ["ssm:GetParameter"]
     resources = [
-      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/mountos/region/vault-secret-id",
-      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/mountos/region/vault-ca",
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_root}/region/vault-secret-id",
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_root}/region/vault-ca",
     ]
   }
   statement {
@@ -50,7 +50,7 @@ data "aws_iam_policy_document" "blockserv_secret_id" {
 
 resource "aws_iam_role_policy" "blockserv_secret_id" {
   count  = var.block_enable ? 1 : 0
-  name   = "mountos-blockserv-secret-id"
+  name   = "${local.name_root}-blockserv-secret-id"
   role   = aws_iam_role.blockserv[0].id
   policy = data.aws_iam_policy_document.blockserv_secret_id.json
 }
@@ -65,7 +65,7 @@ resource "aws_ebs_volume" "blockserv_cache" {
   iops              = var.block_cache_iops
   throughput        = var.block_cache_throughput
   encrypted         = true
-  tags              = { Name = "mountos-blockserv-cache-${each.key}" }
+  tags              = { Name = "${local.name_root}-blockserv-cache-${each.key}" }
 }
 
 resource "aws_volume_attachment" "blockserv_cache" {
@@ -80,7 +80,7 @@ resource "aws_volume_attachment" "blockserv_cache" {
 resource "aws_eip" "blockserv" {
   for_each = local.block_members_map
   domain   = "vpc"
-  tags     = { Name = "mountos-blockserv-${each.key}" }
+  tags     = { Name = "${local.name_root}-blockserv-${each.key}" }
 }
 
 resource "aws_eip_association" "blockserv" {
@@ -115,6 +115,7 @@ resource "aws_instance" "blockserv" {
     vault_role_id        = var.region_vault_role_id
     vault_ca_source      = local.region_vault_ca_source
     region               = var.region
+    name_root            = local.name_root
     region_cluster_id    = var.region_cluster_id
     srpc_addr            = "${aws_lb.appserv_srpc.dns_name}:9443"
     advertise_addr       = aws_eip.blockserv[each.key].public_ip
@@ -127,5 +128,5 @@ resource "aws_instance" "blockserv" {
   # SSM param must exist before instances launch and fetch the secret_id.
   depends_on = [aws_ssm_parameter.region_secret_id]
 
-  tags = { Name = "mountos-blockserv-${each.key}" }
+  tags = { Name = "${local.name_root}-blockserv-${each.key}" }
 }

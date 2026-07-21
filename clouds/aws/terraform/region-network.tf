@@ -47,13 +47,13 @@ resource "aws_vpc" "region" {
   cidr_block           = var.region_vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags                 = { Name = "mountos-region" }
+  tags                 = { Name = "${local.name_root}-region" }
 }
 
 resource "aws_internet_gateway" "region_igw" {
   count  = local.region_dedicated_vpc ? 1 : 0
   vpc_id = aws_vpc.region[0].id
-  tags   = { Name = "mountos-region-igw" }
+  tags   = { Name = "${local.name_root}-region-igw" }
 }
 
 resource "aws_subnet" "region_public" {
@@ -62,7 +62,7 @@ resource "aws_subnet" "region_public" {
   cidr_block              = local.region_public_cidrs[count.index]
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
-  tags                    = { Name = "mountos-region-public-${local.azs[count.index]}", Tier = "public" }
+  tags                    = { Name = "${local.name_root}-region-public-${local.azs[count.index]}", Tier = "public" }
 }
 
 resource "aws_subnet" "region_private" {
@@ -70,7 +70,7 @@ resource "aws_subnet" "region_private" {
   vpc_id            = aws_vpc.region[0].id
   cidr_block        = local.region_private_cidrs[count.index]
   availability_zone = local.azs[count.index]
-  tags              = { Name = "mountos-region-private-${local.azs[count.index]}", Tier = "private" }
+  tags              = { Name = "${local.name_root}-region-private-${local.azs[count.index]}", Tier = "private" }
 }
 
 # Routes modeled as standalone aws_route resources (not inline route {}
@@ -79,7 +79,7 @@ resource "aws_subnet" "region_private" {
 resource "aws_route_table" "region_public" {
   count  = local.region_dedicated_vpc ? 1 : 0
   vpc_id = aws_vpc.region[0].id
-  tags   = { Name = "mountos-region-public" }
+  tags   = { Name = "${local.name_root}-region-public" }
 }
 
 resource "aws_route" "region_public_igw" {
@@ -108,14 +108,14 @@ resource "aws_route_table_association" "region_public" {
 resource "aws_eip" "region_nat" {
   count  = local.region_dedicated_vpc && var.enable_nat ? length(aws_subnet.region_public) : 0
   domain = "vpc"
-  tags   = { Name = "mountos-region-nat-${local.azs[count.index]}" }
+  tags   = { Name = "${local.name_root}-region-nat-${local.azs[count.index]}" }
 }
 
 resource "aws_nat_gateway" "region_nat" {
   count         = local.region_dedicated_vpc && var.enable_nat ? length(aws_subnet.region_public) : 0
   allocation_id = aws_eip.region_nat[count.index].id
   subnet_id     = aws_subnet.region_public[count.index].id
-  tags          = { Name = "mountos-region-nat-${local.azs[count.index]}" }
+  tags          = { Name = "${local.name_root}-region-nat-${local.azs[count.index]}" }
 }
 
 # One private route table per AZ: NAT egress (if enabled) plus a route back to
@@ -126,7 +126,7 @@ resource "aws_nat_gateway" "region_nat" {
 resource "aws_route_table" "region_private" {
   count  = local.region_dedicated_vpc ? length(aws_subnet.region_private) : 0
   vpc_id = aws_vpc.region[0].id
-  tags   = { Name = "mountos-region-private-${local.azs[count.index]}" }
+  tags   = { Name = "${local.name_root}-region-private-${local.azs[count.index]}" }
 }
 
 resource "aws_route" "region_private_nat" {
@@ -156,7 +156,7 @@ resource "aws_vpc_peering_connection" "region" {
   vpc_id      = aws_vpc.main.id
   peer_vpc_id = aws_vpc.region[0].id
   auto_accept = true
-  tags        = { Name = "mountos-hub-region-peering" }
+  tags        = { Name = "${local.name_root}-hub-region-peering" }
 }
 
 # Peered VPCs don't resolve each other's private DNS by default. Without this,

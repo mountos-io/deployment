@@ -3,6 +3,11 @@
 region = "eastus"
 mode   = "production"
 
+# Set when this subscription already hosts another mountOS deployment, so
+# provisioned resource names and secret names don't collide. Must match the
+# VAULT_RESOURCE_PREFIX env var used by every service in this deployment.
+resource_prefix = ""
+
 # SSH public key for operator break-glass access (Azure requires either an SSH
 # key or password auth on every VM; not used by the boot/config flow itself).
 admin_ssh_public_key = "" # REQUIRED — e.g. "ssh-ed25519 AAAA..."

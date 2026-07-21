@@ -7,13 +7,13 @@
 
 resource "google_compute_address" "blockserv" {
   for_each = local.block_members_map
-  name     = "mountos-blockserv-${each.key}"
+  name     = "${local.name_root}-blockserv-${each.key}"
   region   = var.region
 }
 
 resource "google_compute_disk" "blockserv_cache" {
   for_each = local.block_members_map
-  name     = "mountos-blockserv-cache-${each.key}"
+  name     = "${local.name_root}-blockserv-cache-${each.key}"
   zone     = local.zones[each.value.zone_index % length(local.zones)]
   type     = var.block_cache_type
   size     = var.block_cache_gb
@@ -21,7 +21,7 @@ resource "google_compute_disk" "blockserv_cache" {
 
 resource "google_compute_instance" "blockserv" {
   for_each     = local.block_members_map
-  name         = "mountos-blockserv-${each.key}"
+  name         = "${local.name_root}-blockserv-${each.key}"
   machine_type = var.block_machine_type
   zone         = local.zones[each.value.zone_index % length(local.zones)]
   tags         = ["mountos-blockserv"]

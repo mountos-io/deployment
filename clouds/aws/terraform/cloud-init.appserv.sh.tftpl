@@ -89,7 +89,7 @@ StartLimitIntervalSec=0
 EnvironmentFile=/etc/mountos/appserv.env
 %{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/appserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/mountos/hub/vault-ca%{ else }-%{ endif } /mountos/appserv/vault-secret-id ${region} /etc/mountos/appserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/${name_root}/hub/vault-ca%{ else }-%{ endif } /${name_root}/appserv/vault-secret-id ${region} /etc/mountos/appserv.secret.env
 %{ endif ~}
 ExecStartPre=/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv

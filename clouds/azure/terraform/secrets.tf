@@ -7,14 +7,14 @@
 
 resource "azurerm_key_vault_secret" "appserv_vault_secret_id" {
   count        = local.hub_hashicorp && var.vault_secret_id != "" ? 1 : 0
-  name         = "mountos-appserv-vault-secret-id"
+  name         = "${local.name_root}-appserv-vault-secret-id"
   value        = var.vault_secret_id
   key_vault_id = azurerm_key_vault.hub.id
 }
 
 resource "azurerm_key_vault_secret" "region_vault_secret_id" {
   count        = local.region_hashicorp && var.region_vault_secret_id != "" ? 1 : 0
-  name         = "mountos-region-vault-secret-id"
+  name         = "${local.name_root}-region-vault-secret-id"
   value        = var.region_vault_secret_id
   key_vault_id = azurerm_key_vault.region.id
 }
@@ -25,14 +25,14 @@ resource "azurerm_key_vault_secret" "region_vault_secret_id" {
 # assignments (iam.tf/region-iam.tf) cover these paths.
 resource "azurerm_key_vault_secret" "hub_vault_ca_byo" {
   count        = local.hub_hashicorp && var.vault_ca_pem != "" ? 1 : 0
-  name         = "mountos-hub-vault-ca"
+  name         = "${local.name_root}-hub-vault-ca"
   value        = var.vault_ca_pem
   key_vault_id = azurerm_key_vault.hub.id
 }
 
 resource "azurerm_key_vault_secret" "region_vault_ca_byo" {
   count        = local.region_hashicorp && var.region_vault_ca_pem != "" ? 1 : 0
-  name         = "mountos-region-vault-ca"
+  name         = "${local.name_root}-region-vault-ca"
   value        = var.region_vault_ca_pem
   key_vault_id = azurerm_key_vault.region.id
 }

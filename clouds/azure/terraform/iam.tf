@@ -1,6 +1,6 @@
 # ---------- appserv: reads the hub Key Vault only, per-secret grants ----------
 resource "azurerm_user_assigned_identity" "appserv" {
-  name                = "mountos-appserv"
+  name                = "${local.name_root}-appserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
@@ -12,14 +12,14 @@ resource "azurerm_user_assigned_identity" "appserv" {
 # region-rds.tf), which no service may ever read.
 resource "azurerm_role_assignment" "appserv_ca_reader" {
   count                = local.hub_hashicorp ? 1 : 0
-  scope                = "${azurerm_key_vault.hub.id}/secrets/mountos-hub-vault-ca"
+  scope                = "${azurerm_key_vault.hub.id}/secrets/${local.name_root}-hub-vault-ca"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.appserv.principal_id
 }
 
 resource "azurerm_role_assignment" "appserv_secret_id_reader" {
   count                = local.hub_hashicorp ? 1 : 0
-  scope                = "${azurerm_key_vault.hub.id}/secrets/mountos-appserv-vault-secret-id"
+  scope                = "${azurerm_key_vault.hub.id}/secrets/${local.name_root}-appserv-vault-secret-id"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.appserv.principal_id
 }
@@ -35,9 +35,9 @@ resource "azurerm_role_assignment" "appserv_secret_id_reader" {
 # access time).
 resource "azurerm_role_assignment" "appserv_secretstore" {
   for_each = var.vault_provider == "azure" ? toset([
-    "mountos--appserv",
-    "mountos--service-verifiers",
-    "mountos--ping-probe",
+    "${local.name_root}--appserv",
+    "${local.name_root}--service-verifiers",
+    "${local.name_root}--ping-probe",
   ]) : toset([])
   scope                = "${azurerm_key_vault.hub.id}/secrets/${each.value}"
   role_definition_name = "Key Vault Secrets User"

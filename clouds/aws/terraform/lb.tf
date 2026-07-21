@@ -1,9 +1,9 @@
 # ---------- ALB SG: public HTTPS to appserv:8080 ----------
 resource "aws_security_group" "alb" {
-  name        = "mountos-alb"
+  name        = "${local.name_root}-alb"
   description = "ALB: public HTTPS for hub"
   vpc_id      = aws_vpc.main.id
-  tags        = { Name = "mountos-alb" }
+  tags        = { Name = "${local.name_root}-alb" }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "alb_https" {
@@ -39,7 +39,7 @@ resource "aws_acm_certificate" "hub" {
   lifecycle {
     create_before_destroy = true
   }
-  tags = { Name = "mountos-hub" }
+  tags = { Name = "${local.name_root}-hub" }
 }
 
 resource "aws_route53_record" "hub_cert_validation" {
@@ -67,16 +67,16 @@ resource "aws_acm_certificate_validation" "hub" {
 
 # ---------- ALB (HTTP/HTTPS hub) ----------
 resource "aws_lb" "appserv" {
-  name               = "mountos-appserv"
+  name               = "${local.name_root}-appserv"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
-  tags               = { Name = "mountos-appserv" }
+  tags               = { Name = "${local.name_root}-appserv" }
 }
 
 resource "aws_lb_target_group" "appserv_http" {
-  name        = "mountos-appserv-http"
+  name        = "${local.name_root}-appserv-http"
   port        = 8443
   protocol    = "HTTPS"
   vpc_id      = aws_vpc.main.id
@@ -90,7 +90,7 @@ resource "aws_lb_target_group" "appserv_http" {
     matcher  = "200-499"
   }
 
-  tags = { Name = "mountos-appserv-http" }
+  tags = { Name = "${local.name_root}-appserv-http" }
 }
 
 # certificate_arn is set only when route53_zone_id is supplied. Otherwise the operator
@@ -118,11 +118,11 @@ resource "aws_lb_listener" "https" {
 # Internal: the SRPC control plane must not be internet-facing. Region services
 # reach it from inside the VPC.
 resource "aws_lb" "appserv_srpc" {
-  name               = "mountos-appserv-srpc"
+  name               = "${local.name_root}-appserv-srpc"
   internal           = true
   load_balancer_type = "network"
   subnets            = aws_subnet.public[*].id
-  tags               = { Name = "mountos-appserv-srpc" }
+  tags               = { Name = "${local.name_root}-appserv-srpc" }
 
   # appserv_count (2) < AZ count (3): without cross-zone an NLB node in the
   # AZ that has no appserv target would fail connections routed to its IP.
@@ -130,7 +130,7 @@ resource "aws_lb" "appserv_srpc" {
 }
 
 resource "aws_lb_target_group" "appserv_srpc" {
-  name        = "mountos-appserv-srpc"
+  name        = "${local.name_root}-appserv-srpc"
   port        = 9443
   protocol    = "TCP"
   vpc_id      = aws_vpc.main.id
@@ -141,7 +141,7 @@ resource "aws_lb_target_group" "appserv_srpc" {
     port     = "9443"
   }
 
-  tags = { Name = "mountos-appserv-srpc" }
+  tags = { Name = "${local.name_root}-appserv-srpc" }
 }
 
 resource "aws_lb_listener" "srpc" {

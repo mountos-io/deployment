@@ -146,10 +146,25 @@ variable "hub_certificate_id" {
   default     = ""
 }
 
+variable "resource_prefix" {
+  type        = string
+  description = "Optional resource-namespace prefix (1-11 lowercase alphanumeric/hyphen chars). Set when this GCP project already hosts another mountOS deployment, so secret paths and provisioned resource names don't collide. Must match the VAULT_RESOURCE_PREFIX env var used by every service in this deployment."
+  default     = ""
+  validation {
+    condition     = var.resource_prefix == "" || can(regex("^[a-z0-9]([a-z0-9-]{0,9}[a-z0-9])?$", var.resource_prefix))
+    error_message = "resource_prefix must be empty or 1-11 lowercase alphanumeric/hyphen characters, not starting or ending with a hyphen (kept in sync with the tighter AWS ALB/NLB 32-char name cap, even though GCP's own service-account account_id budget alone would allow 12)."
+  }
+}
+
 locals {
   provision_sql = var.admin_db_mode == "provision-sql"
   hub_gcp       = var.vault_provider == "gcp"
   hub_hashicorp = var.vault_provider == "hashicorp"
+  # GCP secret/resource root, mirrors the Go GCP secrets encoder's nameRoot().
+  name_root = var.resource_prefix != "" ? "mountos-${var.resource_prefix}" : "mountos"
+  # role_id syntax is [a-zA-Z0-9_.]+ only (no dashes) — used only where a dash
+  # can't appear (google_project_iam_custom_role.role_id in region-iam.tf).
+  name_root_camel = var.resource_prefix != "" ? title(replace(var.resource_prefix, "-", "")) : ""
   # secret: instances fetch the byo Vault's private CA from Secret Manager
   # (published by Terraform from vault_ca_pem). system: byo Vault with a
   # publicly-trusted cert — no CA fetch, no VAULT_CACERT. Unused by the gcp

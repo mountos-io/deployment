@@ -7,7 +7,7 @@
 
 resource "azurerm_public_ip" "blockserv" {
   for_each            = local.block_members_map
-  name                = "mountos-blockserv-${each.key}"
+  name                = "${local.name_root}-blockserv-${each.key}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   allocation_method   = "Static"
@@ -17,7 +17,7 @@ resource "azurerm_public_ip" "blockserv" {
 
 resource "azurerm_managed_disk" "blockserv_cache" {
   for_each             = local.block_members_map
-  name                 = "mountos-blockserv-cache-${each.key}"
+  name                 = "${local.name_root}-blockserv-cache-${each.key}"
   resource_group_name  = azurerm_resource_group.main.name
   location             = azurerm_resource_group.main.location
   storage_account_type = "Premium_LRS"
@@ -28,7 +28,7 @@ resource "azurerm_managed_disk" "blockserv_cache" {
 
 resource "azurerm_network_interface" "blockserv" {
   for_each            = local.block_members_map
-  name                = "mountos-blockserv-${each.key}"
+  name                = "${local.name_root}-blockserv-${each.key}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 
@@ -54,7 +54,7 @@ resource "azurerm_network_interface_security_group_association" "blockserv" {
 
 resource "azurerm_linux_virtual_machine" "blockserv" {
   for_each              = local.block_members_map
-  name                  = "mountos-blockserv-${each.key}"
+  name                  = "${local.name_root}-blockserv-${each.key}"
   resource_group_name   = azurerm_resource_group.main.name
   location              = azurerm_resource_group.main.location
   size                  = var.block_vm_size
@@ -97,8 +97,8 @@ resource "azurerm_linux_virtual_machine" "blockserv" {
     vault_role_id           = var.region_vault_role_id
     vault_ca_source         = local.region_vault_ca_source
     key_vault_uri           = azurerm_key_vault.region.vault_uri
-    region_vault_ca_secret  = "mountos-region-vault-ca"
-    region_secret_id_secret = "mountos-region-vault-secret-id"
+    region_vault_ca_secret  = "${local.name_root}-region-vault-ca"
+    region_secret_id_secret = "${local.name_root}-region-vault-secret-id"
     identity_client_id      = azurerm_user_assigned_identity.blockserv[0].client_id
     region_cluster_id       = var.region_cluster_id
     srpc_addr               = "${azurerm_lb.appserv_srpc.frontend_ip_configuration[0].private_ip_address}:9443"

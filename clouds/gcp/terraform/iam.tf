@@ -1,6 +1,8 @@
 # ---------- appserv: reaches the secret store over the network, no KMS ----------
+# account_id has a 6-30 char total limit; a long resource_prefix could push
+# "<name_root>-appserv" over it.
 resource "google_service_account" "appserv" {
-  account_id   = "mountos-appserv"
+  account_id   = "${local.name_root}-appserv"
   display_name = "mountOS appserv"
 }
 

@@ -27,7 +27,7 @@ data "aws_iam_policy_document" "hub_key" {
       identifiers = [local.account_root_arn]
     }
   }
-  # appserv reads /mountos/appserv/vault-secret-id + /mountos/hub/vault-ca
+  # appserv reads /<name_root>/appserv/vault-secret-id + /<name_root>/hub/vault-ca
   # (ssm.tf), SecureString-encrypted with this CMK — decrypt-only, and only
   # reachable via SSM (not a general-purpose KMS grant on this key).
   statement {
@@ -51,7 +51,7 @@ resource "aws_kms_key" "hub" {
   deletion_window_in_days = 30
   enable_key_rotation     = true
   policy                  = data.aws_iam_policy_document.hub_key.json
-  tags                    = { Name = "mountos-hub" }
+  tags                    = { Name = "${local.name_root}-hub" }
 
   lifecycle {
     prevent_destroy = true
@@ -59,7 +59,7 @@ resource "aws_kms_key" "hub" {
 }
 
 resource "aws_kms_alias" "hub" {
-  name          = "alias/mountos-hub"
+  name          = "alias/${local.name_root}-hub"
   target_key_id = aws_kms_key.hub.key_id
 }
 
@@ -74,7 +74,7 @@ data "aws_iam_policy_document" "region_key" {
     }
   }
   # dataserv/blockserv (whichever are enabled) read
-  # /mountos/region/vault-secret-id + /mountos/region/vault-ca, SecureString-
+  # /<name_root>/region/vault-secret-id + /<name_root>/region/vault-ca, SecureString-
   # encrypted with this CMK — decrypt-only, and only reachable via SSM.
   statement {
     sid       = "SsmSecretRead"
@@ -97,7 +97,7 @@ resource "aws_kms_key" "region" {
   deletion_window_in_days = 30
   enable_key_rotation     = true
   policy                  = data.aws_iam_policy_document.region_key.json
-  tags                    = { Name = "mountos-region" }
+  tags                    = { Name = "${local.name_root}-region" }
 
   lifecycle {
     prevent_destroy = true
@@ -105,7 +105,7 @@ resource "aws_kms_key" "region" {
 }
 
 resource "aws_kms_alias" "region" {
-  name          = "alias/mountos-region"
+  name          = "alias/${local.name_root}-region"
   target_key_id = aws_kms_key.region.key_id
 }
 

@@ -34,14 +34,14 @@ locals {
 
 resource "google_compute_network" "region" {
   count                   = local.region_dedicated_vpc ? 1 : 0
-  name                    = "mountos-region"
+  name                    = "${local.name_root}-region"
   auto_create_subnetworks = false
   routing_mode            = "REGIONAL"
 }
 
 resource "google_compute_subnetwork" "region_public" {
   count         = local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-region-public"
+  name          = "${local.name_root}-region-public"
   network       = google_compute_network.region[0].id
   ip_cidr_range = var.region_vpc_cidr_public
   region        = var.region
@@ -57,14 +57,14 @@ resource "google_compute_subnetwork" "region_public" {
 # enabled) DNS both exchange automatically once both sides are up.
 resource "google_compute_network_peering" "hub_to_region" {
   count        = local.region_dedicated_vpc ? 1 : 0
-  name         = "mountos-hub-to-region"
+  name         = "${local.name_root}-hub-to-region"
   network      = google_compute_network.main.id
   peer_network = google_compute_network.region[0].id
 }
 
 resource "google_compute_network_peering" "region_to_hub" {
   count        = local.region_dedicated_vpc ? 1 : 0
-  name         = "mountos-region-to-hub"
+  name         = "${local.name_root}-region-to-hub"
   network      = google_compute_network.region[0].id
   peer_network = google_compute_network.main.id
 }

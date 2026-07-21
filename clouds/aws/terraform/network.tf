@@ -19,12 +19,12 @@ resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags                 = { Name = "mountos" }
+  tags                 = { Name = local.name_root }
 }
 
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "mountos-igw" }
+  tags   = { Name = "${local.name_root}-igw" }
 }
 
 resource "aws_subnet" "public" {
@@ -33,7 +33,7 @@ resource "aws_subnet" "public" {
   cidr_block              = local.public_cidrs[count.index]
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
-  tags                    = { Name = "mountos-public-${local.azs[count.index]}", Tier = "public" }
+  tags                    = { Name = "${local.name_root}-public-${local.azs[count.index]}", Tier = "public" }
 }
 
 resource "aws_subnet" "private" {
@@ -41,7 +41,7 @@ resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = local.private_cidrs[count.index]
   availability_zone = local.azs[count.index]
-  tags              = { Name = "mountos-private-${local.azs[count.index]}", Tier = "private" }
+  tags              = { Name = "${local.name_root}-private-${local.azs[count.index]}", Tier = "private" }
 }
 
 # Routes modeled as standalone aws_route resources (not inline route {}
@@ -52,7 +52,7 @@ resource "aws_subnet" "private" {
 # other's routes).
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "mountos-public" }
+  tags   = { Name = "${local.name_root}-public" }
 }
 
 resource "aws_route" "public_igw" {
@@ -72,21 +72,21 @@ resource "aws_route_table_association" "public" {
 resource "aws_eip" "nat" {
   count  = var.enable_nat ? length(aws_subnet.public) : 0
   domain = "vpc"
-  tags   = { Name = "mountos-nat-${local.azs[count.index]}" }
+  tags   = { Name = "${local.name_root}-nat-${local.azs[count.index]}" }
 }
 
 resource "aws_nat_gateway" "nat" {
   count         = var.enable_nat ? length(aws_subnet.public) : 0
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
-  tags          = { Name = "mountos-nat-${local.azs[count.index]}" }
+  tags          = { Name = "${local.name_root}-nat-${local.azs[count.index]}" }
 }
 
 # One private route table per AZ, each routing egress to its own AZ's NAT.
 resource "aws_route_table" "private" {
   count  = length(aws_subnet.private)
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "mountos-private-${local.azs[count.index]}" }
+  tags   = { Name = "${local.name_root}-private-${local.azs[count.index]}" }
 }
 
 resource "aws_route" "private_nat" {

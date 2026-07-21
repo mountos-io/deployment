@@ -15,7 +15,7 @@ resource "random_password" "admin_db" {
 
 resource "azurerm_key_vault_secret" "admin_db_password" {
   count        = local.provision_pg ? 1 : 0
-  name         = "mountos-admin-db-password"
+  name         = "${local.name_root}-admin-db-password"
   value        = random_password.admin_db[0].result
   key_vault_id = azurerm_key_vault.hub.id
 }
@@ -24,7 +24,7 @@ resource "azurerm_key_vault_secret" "admin_db_password" {
 # DNS zone linked to the VNet.
 resource "azurerm_subnet" "admin_db" {
   count                = local.provision_pg ? 1 : 0
-  name                 = "mountos-admin-db"
+  name                 = "${local.name_root}-admin-db"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.20.0/24"]
@@ -40,13 +40,13 @@ resource "azurerm_subnet" "admin_db" {
 
 resource "azurerm_private_dns_zone" "admin_db" {
   count               = local.provision_pg ? 1 : 0
-  name                = "mountos-admin.postgres.database.azure.com"
+  name                = "${local.name_root}-admin.postgres.database.azure.com"
   resource_group_name = azurerm_resource_group.main.name
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "admin_db" {
   count                 = local.provision_pg ? 1 : 0
-  name                  = "mountos-admin-db-link"
+  name                  = "${local.name_root}-admin-db-link"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.admin_db[0].name
   virtual_network_id    = azurerm_virtual_network.main.id
@@ -54,7 +54,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "admin_db" {
 
 resource "azurerm_postgresql_flexible_server" "admin" {
   count                  = local.provision_pg ? 1 : 0
-  name                   = "mountos-admin"
+  name                   = "${local.name_root}-admin"
   resource_group_name    = azurerm_resource_group.main.name
   location               = azurerm_resource_group.main.location
   version                = var.admin_db_provider_version

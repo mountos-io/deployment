@@ -1,5 +1,5 @@
 resource "azurerm_linux_virtual_machine_scale_set" "appserv" {
-  name                = "mountos-appserv"
+  name                = "${local.name_root}-appserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = var.appserv_vm_size
@@ -41,7 +41,7 @@ resource "azurerm_linux_virtual_machine_scale_set" "appserv" {
   }
 
   network_interface {
-    name                      = "mountos-appserv"
+    name                      = "${local.name_root}-appserv"
     primary                   = true
     network_security_group_id = azurerm_network_security_group.hub.id
 
@@ -61,8 +61,8 @@ resource "azurerm_linux_virtual_machine_scale_set" "appserv" {
     vault_role_id            = var.vault_role_id
     vault_ca_source          = local.hub_vault_ca_source
     key_vault_uri            = azurerm_key_vault.hub.vault_uri
-    hub_vault_ca_secret      = "mountos-hub-vault-ca"
-    appserv_secret_id_secret = "mountos-appserv-vault-secret-id"
+    hub_vault_ca_secret      = "${local.name_root}-hub-vault-ca"
+    appserv_secret_id_secret = "${local.name_root}-appserv-vault-secret-id"
     identity_client_id       = azurerm_user_assigned_identity.appserv.client_id
     mos_version              = var.mos_version
     mos_installer_sha256     = var.mos_installer_sha256

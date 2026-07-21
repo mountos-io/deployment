@@ -1,17 +1,17 @@
 # Admin DB (mountos_admin). Provisioned only when admin_db_mode = provision-rds.
 resource "aws_db_subnet_group" "admin" {
   count      = local.provision_rds ? 1 : 0
-  name       = "mountos-admin"
+  name       = "${local.name_root}-admin"
   subnet_ids = aws_subnet.private[*].id
-  tags       = { Name = "mountos-admin" }
+  tags       = { Name = "${local.name_root}-admin" }
 }
 
 resource "aws_security_group" "rds" {
   count       = local.provision_rds ? 1 : 0
-  name        = "mountos-rds"
+  name        = "${local.name_root}-rds"
   description = "admin RDS: postgres from appserv only"
   vpc_id      = aws_vpc.main.id
-  tags        = { Name = "mountos-rds" }
+  tags        = { Name = "${local.name_root}-rds" }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "rds_from_appserv" {
@@ -44,7 +44,7 @@ resource "random_id" "admin_final_snapshot" {
 # future client that omits the flag can't connect in plaintext.
 resource "aws_db_parameter_group" "admin" {
   count  = local.provision_rds ? 1 : 0
-  name   = "mountos-admin"
+  name   = "${local.name_root}-admin"
   family = "postgres${var.admin_db_provider_version}"
 
   parameter {
@@ -56,7 +56,7 @@ resource "aws_db_parameter_group" "admin" {
 
 resource "aws_db_instance" "admin" {
   count                      = local.provision_rds ? 1 : 0
-  identifier                 = "mountos-admin"
+  identifier                 = "${local.name_root}-admin"
   engine                     = "postgres"
   engine_version             = var.admin_db_provider_version
   instance_class             = var.db_instance_class
@@ -68,14 +68,14 @@ resource "aws_db_instance" "admin" {
   parameter_group_name       = aws_db_parameter_group.admin[0].name
   storage_encrypted          = true
   skip_final_snapshot        = var.mode != "production"
-  final_snapshot_identifier  = "mountos-admin-final-${random_id.admin_final_snapshot[0].hex}"
+  final_snapshot_identifier  = "${local.name_root}-admin-final-${random_id.admin_final_snapshot[0].hex}"
   deletion_protection        = var.mode == "production"
   backup_retention_period    = 14
   copy_tags_to_snapshot      = true
   auto_minor_version_upgrade = false
   max_allocated_storage      = var.db_allocated_gb * 4
   multi_az                   = var.mode == "production"
-  tags                       = { Name = "mountos-admin" }
+  tags                       = { Name = "${local.name_root}-admin" }
 
   # AWS generates and rotates the master password in Secrets Manager; it is
   # never a Terraform value, so it never lands in tfstate or user_data. The

@@ -3,7 +3,7 @@
 # PUBLIC subnet: dataserv advertises a public IPv4 (see region-cloud-init).
 
 resource "google_compute_instance_template" "dataserv" {
-  name_prefix  = "mountos-dataserv-"
+  name_prefix  = "${local.name_root}-dataserv-"
   machine_type = var.dataserv_machine_type
   tags         = var.gcserv_colocated ? ["mountos-dataserv", "mountos-gcserv"] : ["mountos-dataserv"]
 
@@ -81,7 +81,7 @@ resource "google_compute_instance_template" "dataserv" {
 # forms via the 6465 peer firewall rule; instances discover peers via hub
 # registration.
 resource "google_compute_health_check" "dataserv" {
-  name = "mountos-dataserv"
+  name = "${local.name_root}-dataserv"
   tcp_health_check {
     port = 6464
   }
@@ -92,9 +92,9 @@ resource "google_compute_health_check" "dataserv" {
 }
 
 resource "google_compute_region_instance_group_manager" "dataserv" {
-  name               = "mountos-dataserv"
+  name               = "${local.name_root}-dataserv"
   region             = var.region
-  base_instance_name = "mountos-dataserv"
+  base_instance_name = "${local.name_root}-dataserv"
   target_size        = var.dataserv_count
 
   version {

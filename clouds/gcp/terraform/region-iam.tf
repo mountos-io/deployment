@@ -1,15 +1,18 @@
 # One service account per region service (dataserv/gcserv co-located,
 # blockserv) — blast-radius isolation, matching the AWS module's per-service
 # IAM role even where services share a security group/tag.
+#
+# account_id has a 6-30 char total limit; a long resource_prefix could push
+# "<name_root>-dataserv"/"<name_root>-blockserv" over it.
 
 resource "google_service_account" "dataserv" {
-  account_id   = "mountos-dataserv"
+  account_id   = "${local.name_root}-dataserv"
   display_name = "mountOS dataserv/gcserv"
 }
 
 resource "google_service_account" "blockserv" {
   count        = var.block_enable ? 1 : 0
-  account_id   = "mountos-blockserv"
+  account_id   = "${local.name_root}-blockserv"
   display_name = "mountOS blockserv"
 }
 
@@ -68,14 +71,16 @@ resource "google_secret_manager_secret_iam_member" "region_vault_ca_reader" {
 
 locals {
   dynamic_secret_condition = join(" || ", [
-    "resource.name.startsWith(\"projects/${data.google_project.current.number}/secrets/mountos__s3creds__\")",
-    "resource.name.startsWith(\"projects/${data.google_project.current.number}/secrets/mountos__volcreds__\")",
+    "resource.name.startsWith(\"projects/${data.google_project.current.number}/secrets/${local.name_root}__s3creds__\")",
+    "resource.name.startsWith(\"projects/${data.google_project.current.number}/secrets/${local.name_root}__volcreds__\")",
   ])
 }
 
+# role_id syntax is [a-zA-Z0-9_.]+ only (no dashes), so it uses
+# local.name_root_camel, not local.name_root.
 resource "google_project_iam_custom_role" "secret_creator" {
   count       = local.region_gcp ? 1 : 0
-  role_id     = "mountosSecretCreator"
+  role_id     = "mountos${local.name_root_camel}SecretCreator"
   title       = "mountOS secret creator"
   description = "Create Secret Manager secret containers only (no payload access)."
   permissions = ["secretmanager.secrets.create"]
@@ -83,7 +88,7 @@ resource "google_project_iam_custom_role" "secret_creator" {
 
 resource "google_project_iam_custom_role" "dynamic_secret_writer" {
   count       = local.region_gcp ? 1 : 0
-  role_id     = "mountosDynamicSecretWriter"
+  role_id     = "mountos${local.name_root_camel}DynamicSecretWriter"
   title       = "mountOS dynamic secret writer"
   description = "Read/write/delete secret payloads; bound only with a mountos__s3creds__/mountos__volcreds__ name condition."
   permissions = [
@@ -147,7 +152,7 @@ resource "google_project_iam_member" "dataserv_dynamic_writer" {
   member  = "serviceAccount:${google_service_account.dataserv.email}"
 
   condition {
-    title      = "mountos-dynamic-creds"
+    title      = "${local.name_root}-dynamic-creds"
     expression = local.dynamic_secret_condition
   }
 }
@@ -192,7 +197,7 @@ resource "google_project_iam_member" "worker_dynamic_reader" {
   member   = each.value.member
 
   condition {
-    title      = "mountos-dynamic-creds"
+    title      = "${local.name_root}-dynamic-creds"
     expression = local.dynamic_secret_condition
   }
 }

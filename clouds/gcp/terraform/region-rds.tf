@@ -11,7 +11,7 @@ resource "random_password" "region_db" {
 
 resource "google_secret_manager_secret" "region_db_password" {
   count     = local.region_provision_sql ? 1 : 0
-  secret_id = "mountos-region-db-password"
+  secret_id = "${local.name_root}-region-db-password"
   # replication.auto, not CMEK: see secrets.tf's header comment for why.
   replication {
     auto {}
@@ -29,7 +29,7 @@ resource "google_secret_manager_secret_version" "region_db_password" {
 # needs its own service-networking connection, not a shared one.
 resource "google_compute_global_address" "region_private_services" {
   count         = local.region_dedicated_vpc ? 1 : 0
-  name          = "mountos-region-private-services"
+  name          = "${local.name_root}-region-private-services"
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"
   prefix_length = 16
@@ -45,7 +45,7 @@ resource "google_service_networking_connection" "region_private_services" {
 
 resource "google_sql_database_instance" "region" {
   count               = local.region_provision_sql ? 1 : 0
-  name                = "mountos-region"
+  name                = "${local.name_root}-region"
   database_version    = var.region_db_provider_version
   region              = var.region
   deletion_protection = var.mode == "production"

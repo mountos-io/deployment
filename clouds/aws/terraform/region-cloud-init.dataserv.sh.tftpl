@@ -111,7 +111,7 @@ StartLimitIntervalSec=0
 EnvironmentFile=/etc/mountos/dataserv.env
 %{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/mountos/region/vault-ca%{ else }-%{ endif } /mountos/region/vault-secret-id ${region} /etc/mountos/dataserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/${name_root}/region/vault-ca%{ else }-%{ endif } /${name_root}/region/vault-secret-id ${region} /etc/mountos/dataserv.secret.env
 %{ endif ~}
 ExecStartPre=/usr/local/bin/dataserv db install
 ExecStart=/usr/local/bin/dataserv
@@ -135,7 +135,7 @@ StartLimitIntervalSec=0
 EnvironmentFile=/etc/mountos/dataserv.env
 %{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
-ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/mountos/region/vault-ca%{ else }-%{ endif } /mountos/region/vault-secret-id ${region} /etc/mountos/dataserv.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/${name_root}/region/vault-ca%{ else }-%{ endif } /${name_root}/region/vault-secret-id ${region} /etc/mountos/dataserv.secret.env
 %{ endif ~}
 ExecStart=/usr/local/bin/gcserv
 Restart=always

@@ -28,13 +28,13 @@
 # workers never read s3creds/volcreds directly: replace their vault-scoped
 # Secrets User with per-secret grants on own-config + service-verifiers.
 locals {
-  region_ca_secret_scope        = "${azurerm_key_vault.region.id}/secrets/mountos-region-vault-ca"
-  region_secret_id_secret_scope = "${azurerm_key_vault.region.id}/secrets/mountos-region-vault-secret-id"
+  region_ca_secret_scope        = "${azurerm_key_vault.region.id}/secrets/${local.name_root}-region-vault-ca"
+  region_secret_id_secret_scope = "${azurerm_key_vault.region.id}/secrets/${local.name_root}-region-vault-secret-id"
   region_azure_store            = var.region_vault_provider == "azure"
 }
 
 resource "azurerm_user_assigned_identity" "dataserv" {
-  name                = "mountos-dataserv"
+  name                = "${local.name_root}-dataserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
@@ -64,7 +64,7 @@ resource "azurerm_role_assignment" "dataserv_secretstore" {
 
 resource "azurerm_user_assigned_identity" "blockserv" {
   count               = var.block_enable ? 1 : 0
-  name                = "mountos-blockserv"
+  name                = "${local.name_root}-blockserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }

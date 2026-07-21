@@ -1,5 +1,5 @@
 resource "google_compute_instance_template" "appserv" {
-  name_prefix  = "mountos-appserv-"
+  name_prefix  = "${local.name_root}-appserv-"
   machine_type = var.appserv_machine_type
   tags         = ["mountos-appserv"]
 
@@ -61,7 +61,7 @@ resource "google_compute_instance_template" "appserv" {
 }
 
 resource "google_compute_health_check" "appserv" {
-  name = "mountos-appserv"
+  name = "${local.name_root}-appserv"
   https_health_check {
     port         = 8443
     request_path = "/api/v1/me"
@@ -73,9 +73,9 @@ resource "google_compute_health_check" "appserv" {
 }
 
 resource "google_compute_region_instance_group_manager" "appserv" {
-  name               = "mountos-appserv"
+  name               = "${local.name_root}-appserv"
   region             = var.region
-  base_instance_name = "mountos-appserv"
+  base_instance_name = "${local.name_root}-appserv"
   target_size        = var.appserv_count
 
   version {

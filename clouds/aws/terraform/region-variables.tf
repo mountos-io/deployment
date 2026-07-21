@@ -79,7 +79,7 @@ variable "region_db_provider_version" {
 
 # Region secret store; same model as the hub's (see variables.tf): aws =
 # cloud-native Secrets Manager (RECOMMENDED; hub + region share the account's
-# mountos/* namespace, isolated by IAM), hashicorp = byo Vault, never launched.
+# <name_root>/* namespace, isolated by IAM), hashicorp = byo Vault, never launched.
 variable "region_vault_provider" {
   type        = string
   description = "Region secret store: aws (cloud-native Secrets Manager, RECOMMENDED) | hashicorp (byo Vault via region_vault_addr; never launched by this package)."

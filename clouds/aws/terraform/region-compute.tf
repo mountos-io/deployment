@@ -3,9 +3,9 @@
 
 # ---------- dataserv: SSM only; no KMS (reaches region Vault over the network) ----------
 resource "aws_iam_role" "dataserv" {
-  name               = "mountos-dataserv"
+  name               = "${local.name_root}-dataserv"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
-  tags               = { Name = "mountos-dataserv" }
+  tags               = { Name = "${local.name_root}-dataserv" }
 }
 
 resource "aws_iam_role_policy_attachment" "dataserv_ssm" {
@@ -14,7 +14,7 @@ resource "aws_iam_role_policy_attachment" "dataserv_ssm" {
 }
 
 resource "aws_iam_instance_profile" "dataserv" {
-  name = "mountos-dataserv"
+  name = "${local.name_root}-dataserv"
   role = aws_iam_role.dataserv.name
 }
 
@@ -23,8 +23,8 @@ data "aws_iam_policy_document" "dataserv_secret_id" {
   statement {
     actions = ["ssm:GetParameter"]
     resources = [
-      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/mountos/region/vault-secret-id",
-      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/mountos/region/vault-ca",
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_root}/region/vault-secret-id",
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_root}/region/vault-ca",
     ]
   }
   statement {
@@ -39,13 +39,13 @@ data "aws_iam_policy_document" "dataserv_secret_id" {
 }
 
 resource "aws_iam_role_policy" "dataserv_secret_id" {
-  name   = "mountos-dataserv-secret-id"
+  name   = "${local.name_root}-dataserv-secret-id"
   role   = aws_iam_role.dataserv.id
   policy = data.aws_iam_policy_document.dataserv_secret_id.json
 }
 
 resource "aws_launch_template" "dataserv" {
-  name_prefix   = "mountos-dataserv-"
+  name_prefix   = "${local.name_root}-dataserv-"
   image_id      = local.ami
   instance_type = var.dataserv_instance_type
 
@@ -81,6 +81,7 @@ resource "aws_launch_template" "dataserv" {
     vault_role_id        = var.region_vault_role_id
     vault_ca_source      = local.region_vault_ca_source
     region               = var.region
+    name_root            = local.name_root
     region_cluster_id    = var.region_cluster_id
     srpc_addr            = "${aws_lb.appserv_srpc.dns_name}:9443"
     arena_size           = var.arena_size
@@ -91,10 +92,10 @@ resource "aws_launch_template" "dataserv" {
 
   tag_specifications {
     resource_type = "instance"
-    tags          = { Name = "mountos-dataserv" }
+    tags          = { Name = "${local.name_root}-dataserv" }
   }
 
-  tags = { Name = "mountos-dataserv" }
+  tags = { Name = "${local.name_root}-dataserv" }
 
   lifecycle {
     precondition {
@@ -115,7 +116,7 @@ resource "aws_launch_template" "dataserv" {
 # gets a new one, tolerated by the raft quorum + client-side rediscovery, same
 # as any other node-loss/replacement.
 resource "aws_autoscaling_group" "dataserv" {
-  name_prefix         = "mountos-dataserv-"
+  name_prefix         = "${local.name_root}-dataserv-"
   desired_capacity    = var.dataserv_count
   min_size            = var.dataserv_count
   max_size            = var.dataserv_count
@@ -140,7 +141,7 @@ resource "aws_autoscaling_group" "dataserv" {
 
   tag {
     key                 = "Name"
-    value               = "mountos-dataserv"
+    value               = "${local.name_root}-dataserv"
     propagate_at_launch = true
   }
 

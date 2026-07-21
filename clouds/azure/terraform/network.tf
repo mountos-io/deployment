@@ -27,21 +27,21 @@ variable "zones" {
 }
 
 resource "azurerm_virtual_network" "main" {
-  name                = "mountos"
+  name                = local.name_root
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   address_space       = [var.vnet_cidr]
 }
 
 resource "azurerm_subnet" "public" {
-  name                 = "mountos-public"
+  name                 = "${local.name_root}-public"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.vnet_cidr_public]
 }
 
 resource "azurerm_subnet" "private" {
-  name                 = "mountos-private"
+  name                 = "${local.name_root}-private"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.vnet_cidr_private]
@@ -50,7 +50,7 @@ resource "azurerm_subnet" "private" {
 # NAT Gateway for the private subnet's egress (n.sh installer, package fetches,
 # Vault/Key Vault calls out). Public-subnet instances use their own public IP.
 resource "azurerm_public_ip" "nat" {
-  name                = "mountos-nat"
+  name                = "${local.name_root}-nat"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   allocation_method   = "Static"
@@ -59,7 +59,7 @@ resource "azurerm_public_ip" "nat" {
 }
 
 resource "azurerm_nat_gateway" "nat" {
-  name                = "mountos-nat"
+  name                = "${local.name_root}-nat"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku_name            = "Standard"

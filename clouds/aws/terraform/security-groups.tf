@@ -18,31 +18,31 @@ locals {
 
 # ---------- security group shells (rules attached separately to avoid cross-SG cycles) ----------
 resource "aws_security_group" "appserv" {
-  name        = "mountos-appserv"
+  name        = "${local.name_root}-appserv"
   description = "HUB appserv: public HTTPS + SRPC registration"
   vpc_id      = aws_vpc.main.id
-  tags        = { Name = "mountos-appserv" }
+  tags        = { Name = "${local.name_root}-appserv" }
 }
 
 resource "aws_security_group" "dataserv" {
-  name        = "mountos-dataserv"
+  name        = "${local.name_root}-dataserv"
   description = "dataserv: client data + raft + SRPC"
   vpc_id      = local.region_vpc_id
-  tags        = { Name = "mountos-dataserv" }
+  tags        = { Name = "${local.name_root}-dataserv" }
 }
 
 resource "aws_security_group" "gcserv" {
-  name        = "mountos-gcserv"
+  name        = "${local.name_root}-gcserv"
   description = "gcserv: SRPC from HUB (standalone only)"
   vpc_id      = local.region_vpc_id
-  tags        = { Name = "mountos-gcserv" }
+  tags        = { Name = "${local.name_root}-gcserv" }
 }
 
 resource "aws_security_group" "blockserv" {
-  name        = "mountos-blockserv"
+  name        = "${local.name_root}-blockserv"
   description = "blockserv: client block + peer + SRPC"
   vpc_id      = local.region_vpc_id
-  tags        = { Name = "mountos-blockserv" }
+  tags        = { Name = "${local.name_root}-blockserv" }
 }
 
 # ---------- egress: allow all, every group ----------

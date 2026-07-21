@@ -2,17 +2,17 @@
 # Separate from the hub admin DB per mountOS topology.
 resource "aws_db_subnet_group" "region" {
   count      = local.region_provision_rds ? 1 : 0
-  name       = "mountos-region"
+  name       = "${local.name_root}-region"
   subnet_ids = local.region_subnets[*].id
-  tags       = { Name = "mountos-region" }
+  tags       = { Name = "${local.name_root}-region" }
 }
 
 resource "aws_security_group" "region_rds" {
   count       = local.region_provision_rds ? 1 : 0
-  name        = "mountos-region-rds"
+  name        = "${local.name_root}-region-rds"
   description = "region RDS: postgres from dataserv only"
   vpc_id      = local.region_vpc_id
-  tags        = { Name = "mountos-region-rds" }
+  tags        = { Name = "${local.name_root}-region-rds" }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "region_rds_from_dataserv" {
@@ -41,7 +41,7 @@ resource "random_id" "region_final_snapshot" {
 # Server-side TLS enforcement (see rds.tf's admin parameter group for why).
 resource "aws_db_parameter_group" "region" {
   count  = local.region_provision_rds ? 1 : 0
-  name   = "mountos-region"
+  name   = "${local.name_root}-region"
   family = "postgres${var.region_db_provider_version}"
 
   parameter {
@@ -53,7 +53,7 @@ resource "aws_db_parameter_group" "region" {
 
 resource "aws_db_instance" "region" {
   count                      = local.region_provision_rds ? 1 : 0
-  identifier                 = "mountos-region"
+  identifier                 = "${local.name_root}-region"
   engine                     = "postgres"
   engine_version             = var.region_db_provider_version
   instance_class             = var.region_db_instance_class
@@ -65,14 +65,14 @@ resource "aws_db_instance" "region" {
   parameter_group_name       = aws_db_parameter_group.region[0].name
   storage_encrypted          = true
   skip_final_snapshot        = var.mode != "production"
-  final_snapshot_identifier  = "mountos-region-final-${random_id.region_final_snapshot[0].hex}"
+  final_snapshot_identifier  = "${local.name_root}-region-final-${random_id.region_final_snapshot[0].hex}"
   deletion_protection        = var.mode == "production"
   backup_retention_period    = 14
   copy_tags_to_snapshot      = true
   auto_minor_version_upgrade = false
   max_allocated_storage      = var.region_db_allocated_gb * 4
   multi_az                   = var.mode == "production"
-  tags                       = { Name = "mountos-region" }
+  tags                       = { Name = "${local.name_root}-region" }
 
   # AWS generates and rotates the master password in Secrets Manager; it is
   # never a Terraform value, so it never lands in tfstate or user_data. The

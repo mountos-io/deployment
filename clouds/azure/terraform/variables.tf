@@ -160,9 +160,20 @@ variable "hub_certificate_secret_id" {
   default     = ""
 }
 
+variable "resource_prefix" {
+  type        = string
+  description = "Optional resource-namespace prefix (1-11 lowercase alphanumeric/hyphen chars). Set when this Azure subscription already hosts another mountOS deployment, so secret names and provisioned resource names don't collide. Must match the VAULT_RESOURCE_PREFIX env var used by every service in this deployment. The Key Vault names use only the first 3 characters of this value (Azure's 24-char Key Vault name cap), see key-vaults.tf."
+  default     = ""
+  validation {
+    condition     = var.resource_prefix == "" || can(regex("^[a-z0-9]([a-z0-9-]{0,9}[a-z0-9])?$", var.resource_prefix))
+    error_message = "resource_prefix must be empty or 1-11 lowercase alphanumeric/hyphen characters, not starting or ending with a hyphen (kept in sync with the tighter AWS ALB/NLB 32-char name cap)."
+  }
+}
+
 locals {
   provision_pg  = var.admin_db_mode == "provision-pg"
   hub_hashicorp = var.vault_provider == "hashicorp"
+  name_root     = var.resource_prefix != "" ? "mountos-${var.resource_prefix}" : "mountos"
   # kv: instances fetch the byo Vault's private CA from the hub Key Vault
   # (published by Terraform from vault_ca_pem). system: byo Vault with a
   # publicly-trusted cert — no CA fetch, no VAULT_CACERT. Unused by the azure

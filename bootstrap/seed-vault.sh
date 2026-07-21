@@ -114,8 +114,13 @@ sec() { jq -er ".$1" "$secrets" || { echo "secrets.local.json is missing '$1' â€
 #   aws        mountos/<path>
 #   gcp        mountos__<path>       (/ -> __)
 #   azure      mountos--<path>       (/ -> --)
-# The encodings mirror mountos-servers/internal/secrets exactly.
+# The encodings mirror mountos-servers/internal/secrets exactly. RESOURCE_PREFIX
+# (optional, answers.env) renames the "mountos" root above to "mountos-<prefix>"
+# in all four encodings, so a shared cloud account/project/subscription doesn't
+# collide across deployments â€” must match the Terraform resource_prefix.
 # ---------------------------------------------------------------------------
+name_root="mountos${RESOURCE_PREFIX:+-$RESOURCE_PREFIX}"
+
 case "$VAULT_PROVIDER" in
 hashicorp)
   : "${VAULT_ADDR:?set VAULT_ADDR (your byo Vault address)}"
@@ -151,8 +156,8 @@ hashicorp)
       ;;
     esac
   }
-  kv_get() { v_opt "$VAULT_ADDR/v1/mountos/data/$1" | jq -c '.data.data // {}'; }
-  kv_put() { jq -c '{data: .}' | v -X POST "$VAULT_ADDR/v1/mountos/data/$1" -d @- >/dev/null; }
+  kv_get() { v_opt "$VAULT_ADDR/v1/$name_root/data/$1" | jq -c '.data.data // {}'; }
+  kv_put() { jq -c '{data: .}' | v -X POST "$VAULT_ADDR/v1/$name_root/data/$1" -d @- >/dev/null; }
   ;;
 aws)
   SM_REGION="${VAULT_AWS_REGION:-${AWS_REGION:?set VAULT_AWS_REGION or AWS_REGION}}"
@@ -162,17 +167,17 @@ aws)
   kv_get() {
     local out
     if out="$(aws secretsmanager get-secret-value --region "$SM_REGION" \
-      --secret-id "mountos/$1" --query SecretString --output text 2>&1)"; then
-      jq -c . <<<"$out" 2>/dev/null || { echo "mountos/$1 holds non-JSON content" >&2; return 1; }
+      --secret-id "$name_root/$1" --query SecretString --output text 2>&1)"; then
+      jq -c . <<<"$out" 2>/dev/null || { echo "$name_root/$1 holds non-JSON content" >&2; return 1; }
     elif [[ "$out" == *ResourceNotFoundException* ]]; then
       printf '{}'
     else
-      echo "secretsmanager read failed for mountos/$1: $out" >&2
+      echo "secretsmanager read failed for $name_root/$1: $out" >&2
       return 1
     fi
   }
   kv_put() {
-    local name="mountos/$1"
+    local name="$name_root/$1"
     # --secret-string file:///dev/stdin keeps the payload out of argv (ps-visible).
     if aws secretsmanager describe-secret --region "$SM_REGION" --secret-id "$name" >/dev/null 2>&1; then
       aws secretsmanager put-secret-value --region "$SM_REGION" --secret-id "$name" \
@@ -188,18 +193,18 @@ gcp)
   # See the aws kv_get note: {} ONLY on genuine not-found.
   kv_get() {
     local out
-    if out="$(gcloud secrets versions access latest --secret="mountos__${1//\//__}" \
+    if out="$(gcloud secrets versions access latest --secret="${name_root}__${1//\//__}" \
       --project="$VAULT_GCP_PROJECT_ID" 2>&1)"; then
-      jq -c . <<<"$out" 2>/dev/null || { echo "mountos__${1//\//__} holds non-JSON content" >&2; return 1; }
+      jq -c . <<<"$out" 2>/dev/null || { echo "${name_root}__${1//\//__} holds non-JSON content" >&2; return 1; }
     elif [[ "$out" == *NOT_FOUND* || "$out" == *"not found"* ]]; then
       printf '{}'
     else
-      echo "secret manager read failed for mountos__${1//\//__}: $out" >&2
+      echo "secret manager read failed for ${name_root}__${1//\//__}: $out" >&2
       return 1
     fi
   }
   kv_put() {
-    local name="mountos__${1//\//__}"
+    local name="${name_root}__${1//\//__}"
     gcloud secrets describe "$name" --project="$VAULT_GCP_PROJECT_ID" >/dev/null 2>&1 \
       || gcloud secrets create "$name" --replication-policy=automatic --project="$VAULT_GCP_PROJECT_ID" >/dev/null
     gcloud secrets versions add "$name" --data-file=- --project="$VAULT_GCP_PROJECT_ID" >/dev/null
@@ -210,20 +215,20 @@ azure)
   # See the aws kv_get note: {} ONLY on genuine not-found.
   kv_get() {
     local out
-    if out="$(az keyvault secret show --id "${VAULT_AZURE_URL%/}/secrets/mountos--${1//\//--}" \
+    if out="$(az keyvault secret show --id "${VAULT_AZURE_URL%/}/secrets/${name_root}--${1//\//--}" \
       --query value -o tsv 2>&1)"; then
-      jq -c . <<<"$out" 2>/dev/null || { echo "mountos--${1//\//--} holds non-JSON content" >&2; return 1; }
+      jq -c . <<<"$out" 2>/dev/null || { echo "${name_root}--${1//\//--} holds non-JSON content" >&2; return 1; }
     elif [[ "$out" == *SecretNotFound* ]]; then
       printf '{}'
     else
-      echo "key vault read failed for mountos--${1//\//--}: $out" >&2
+      echo "key vault read failed for ${name_root}--${1//\//--}: $out" >&2
       return 1
     fi
   }
   kv_put() {
     # --file keeps the payload out of argv (ps-visible).
     az keyvault secret set --vault-name "$(sed -E 's#https://([^./]+)\..*#\1#' <<<"$VAULT_AZURE_URL")" \
-      --name "mountos--${1//\//--}" --file <(cat) --encoding utf-8 >/dev/null
+      --name "${name_root}--${1//\//--}" --file <(cat) --encoding utf-8 >/dev/null
   }
   ;;
 *)
@@ -234,10 +239,10 @@ esac
 
 if [[ "$VAULT_PROVIDER" == "hashicorp" ]]; then
   echo "==> enable KVv2 + AppRole (idempotent; re-runs get 'path already in use', hence || true)"
-  v -X POST "$VAULT_ADDR/v1/sys/mounts/mountos" -d '{"type":"kv","options":{"version":"2"}}' >/dev/null || true
+  v -X POST "$VAULT_ADDR/v1/sys/mounts/$name_root" -d '{"type":"kv","options":{"version":"2"}}' >/dev/null || true
   v -X POST "$VAULT_ADDR/v1/sys/auth/approle"   -d '{"type":"approle"}' >/dev/null || true
   v -X PUT  "$VAULT_ADDR/v1/sys/policies/acl/appserv" \
-    -d "$(jq -n '{policy:"path \"mountos/data/*\" { capabilities=[\"read\"] }"}')" >/dev/null \
+    -d "$(jq -n --arg root "$name_root" '{policy: ("path \"\($root)/data/*\" { capabilities=[\"read\"] }")}')" >/dev/null \
     || { echo "vault policy write failed (check VAULT_TOKEN capabilities + VAULT_ADDR/VAULT_CACERT)" >&2; exit 1; }
 fi
 

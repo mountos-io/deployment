@@ -23,32 +23,32 @@ locals {
 }
 
 resource "azurerm_application_security_group" "appserv" {
-  name                = "mountos-appserv"
+  name                = "${local.name_root}-appserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
 
 resource "azurerm_application_security_group" "dataserv" {
-  name                = "mountos-dataserv"
+  name                = "${local.name_root}-dataserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
 
 resource "azurerm_application_security_group" "gcserv" {
-  name                = "mountos-gcserv"
+  name                = "${local.name_root}-gcserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
 
 resource "azurerm_application_security_group" "blockserv" {
-  name                = "mountos-blockserv"
+  name                = "${local.name_root}-blockserv"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
 
 # ---------- hub NSG (appserv) ----------
 resource "azurerm_network_security_group" "hub" {
-  name                = "mountos-hub"
+  name                = "${local.name_root}-hub"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
@@ -137,7 +137,7 @@ resource "azurerm_network_security_rule" "appserv_srpc_from_region_cidr" {
 
 # ---------- region NSG (dataserv/gcserv/blockserv) ----------
 resource "azurerm_network_security_group" "region" {
-  name                = "mountos-region"
+  name                = "${local.name_root}-region"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 }
