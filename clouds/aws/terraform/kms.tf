@@ -23,8 +23,14 @@ data "aws_iam_policy_document" "hub_key" {
     actions   = ["kms:*"]
     resources = ["*"]
     principals {
-      type        = "AWS"
-      identifiers = [local.account_root_arn]
+      type = "AWS"
+      # Both root AND the calling principal explicitly: AWS's key-policy
+      # lockout-safety check wants the actual caller covered, not just an
+      # account-root reference — a caller whose own IAM policy doesn't grant
+      # kms:PutKeyPolicy (e.g. AWSKeyManagementServicePowerUser, which
+      # deliberately excludes it) fails CreateKey otherwise even though root
+      # technically retains access.
+      identifiers = distinct([local.account_root_arn, data.aws_caller_identity.current.arn])
     }
   }
   # appserv reads /<name_root>/appserv/vault-secret-id + /<name_root>/hub/vault-ca
@@ -69,8 +75,14 @@ data "aws_iam_policy_document" "region_key" {
     actions   = ["kms:*"]
     resources = ["*"]
     principals {
-      type        = "AWS"
-      identifiers = [local.account_root_arn]
+      type = "AWS"
+      # Both root AND the calling principal explicitly: AWS's key-policy
+      # lockout-safety check wants the actual caller covered, not just an
+      # account-root reference — a caller whose own IAM policy doesn't grant
+      # kms:PutKeyPolicy (e.g. AWSKeyManagementServicePowerUser, which
+      # deliberately excludes it) fails CreateKey otherwise even though root
+      # technically retains access.
+      identifiers = distinct([local.account_root_arn, data.aws_caller_identity.current.arn])
     }
   }
   # dataserv/blockserv (whichever are enabled) read

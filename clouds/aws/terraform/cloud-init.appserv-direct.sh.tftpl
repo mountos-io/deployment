@@ -69,7 +69,7 @@ EOF
 chmod 0600 /etc/mountos/appserv.env
 
 # Install appserv (built-in free tier; no license required).
-curl -fsSL https://n.sh -o /tmp/mos-install.sh
+curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-appserv --version ${mos_version}

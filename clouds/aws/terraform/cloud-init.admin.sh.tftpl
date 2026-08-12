@@ -25,7 +25,7 @@ ln -sf /opt/node/bin/npm /usr/local/bin/npm
 ln -sf /opt/node/bin/npx /usr/local/bin/npx
 
 # ---------- Valkey (Redis-wire-compatible; AL2023's dnf package for this) ----------
-dnf install -y valkey
+dnf install -y valkey git jq
 systemctl enable --now valkey
 
 # ---------- Vault fetch: admin-client's own secret, self-healing ExecStartPre ----------

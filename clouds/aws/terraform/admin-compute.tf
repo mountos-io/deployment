@@ -33,7 +33,7 @@ resource "aws_vpc_security_group_ingress_rule" "admin_client_http_acme" {
   from_port         = 80
   to_port           = 80
   ip_protocol       = "tcp"
-  description       = "Let's Encrypt HTTP-01 challenge"
+  description       = "ACME HTTP-01 challenge (Lets Encrypt)"
 }
 
 resource "aws_vpc_security_group_egress_rule" "admin_client_all" {
@@ -85,7 +85,9 @@ resource "aws_instance" "admin_client" {
 
   root_block_device {
     volume_type = "gp3"
-    volume_size = 20
+    # 30, not 20: the AL2023 arm64 AMI's root snapshot is 30GB — a smaller
+    # volume than the source snapshot is rejected at launch.
+    volume_size = 30
     encrypted   = true
   }
 

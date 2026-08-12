@@ -91,7 +91,7 @@ resource "aws_vpc_security_group_ingress_rule" "appserv_http_acme" {
   from_port         = 80
   to_port           = 80
   ip_protocol       = "tcp"
-  description       = "Let's Encrypt HTTP-01 challenge"
+  description       = "ACME HTTP-01 challenge (Lets Encrypt)"
 }
 
 # SRPC 9443 from the client_cidr is NOT opened here — dataserv/gcserv/blockserv
