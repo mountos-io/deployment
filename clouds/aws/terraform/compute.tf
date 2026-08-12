@@ -1,4 +1,7 @@
+# This file is the ASG+ALB+NLB path — skipped entirely when var.appserv_direct_ip = true
+# (see appserv-direct.tf for that path instead).
 resource "aws_launch_template" "appserv" {
+  count         = var.appserv_direct_ip ? 0 : 1
   name_prefix   = "${local.name_root}-appserv-"
   image_id      = local.ami
   instance_type = var.appserv_instance_type
@@ -46,6 +49,7 @@ resource "aws_launch_template" "appserv" {
 }
 
 resource "aws_autoscaling_group" "appserv" {
+  count               = var.appserv_direct_ip ? 0 : 1
   name_prefix         = "${local.name_root}-appserv-"
   desired_capacity    = var.appserv_count
   min_size            = var.appserv_count
@@ -54,13 +58,13 @@ resource "aws_autoscaling_group" "appserv" {
   health_check_type   = "ELB"
 
   target_group_arns = [
-    aws_lb_target_group.appserv_http.arn,
-    aws_lb_target_group.appserv_srpc.arn,
+    aws_lb_target_group.appserv_http[0].arn,
+    aws_lb_target_group.appserv_srpc[0].arn,
   ]
 
   launch_template {
-    id      = aws_launch_template.appserv.id
-    version = aws_launch_template.appserv.latest_version
+    id      = aws_launch_template.appserv[0].id
+    version = aws_launch_template.appserv[0].latest_version
   }
 
   # SSM param must exist before instances launch and fetch the secret_id.

@@ -270,6 +270,23 @@ VERIFY_KEY="$(sec appserv_verification)" jq -n --argjson cur "$existing_v" \
 # region, appserv has no access to it per the permission matrix) — see
 # bootstrap/region-seed.sh.
 
+# mountos-admin-client — seeded unconditionally, same as the region service
+# keys, regardless of whether the dashboard is actually deployed this run.
+# MOUNTOS_SDK_SIGNING_KEY reuses admin_private (the SAME operator root
+# credential used everywhere else for Admin SDK calls; appserv enforces
+# role-scoped authorization server-side on every proxied request regardless).
+# provider2dashboard_signing (the PRIVATE half) is deliberately NOT seeded
+# here — it stays operator-side in secrets.local.json, used locally to mint
+# login tokens (see mountos-admin-client's README "Test Token Generation");
+# only the public verification half goes to the running dashboard.
+echo "==> write secrets (mountos-admin-client)"
+ADMIN_SDK_KEY="$(sec admin_private)" \
+  DASH_SIGN="$(sec dashboard_signing)" DASH_VERIFY="$(sec dashboard_verification)" \
+  PROV_VERIFY="$(sec provider2dashboard_verification)" \
+  jq -n '{MOUNTOS_SDK_SIGNING_KEY:env.ADMIN_SDK_KEY,DASHBOARD_SIGNING_KEY:env.DASH_SIGN,
+          DASHBOARD_VERIFICATION_KEY:env.DASH_VERIFY,PROVIDER2DASHBOARD_VERIFICATION_KEY:env.PROV_VERIFY}' \
+  | kv_put admin-client
+
 if [[ "$VAULT_PROVIDER" == "hashicorp" ]]; then
   echo "==> appserv AppRole"
   v -X POST "$VAULT_ADDR/v1/auth/approle/role/appserv" -d '{"token_policies":"appserv","token_ttl":"1h"}' >/dev/null

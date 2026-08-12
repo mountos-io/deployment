@@ -1,0 +1,129 @@
+#!/bin/bash
+set -euo pipefail
+
+# mountos-admin-client (var.admin_client_enabled). Source is public
+# (github.com/mountos-io/mountos-admin-client) — cloned and built here, no
+# prebuilt artifact exists yet. Runs under Node (the documented `make proxy`
+# path: npx tsx server/server.ts), fronted by Caddy for a real public cert on
+# admin_domain (separate domain/origin from hub_domain — see WEBAUTHN_* below).
+
+# ---------- Node.js 22 (official static tarball, no dnf repo dependency) ----------
+ARCH="$(uname -m)"
+case "$ARCH" in
+  aarch64) NODE_ARCH=arm64 ;;
+  x86_64)  NODE_ARCH=x64 ;;
+  *) echo "unsupported arch for Node: $ARCH" >&2; exit 1 ;;
+esac
+# Pinned to a known-real LTS release rather than guessing a "latest" patch
+# version that may not exist yet on a given run date; bump by hand if needed.
+NODE_VERSION="22.11.0"
+curl -fsSL "https://nodejs.org/dist/v$${NODE_VERSION}/node-v$${NODE_VERSION}-linux-$${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz
+mkdir -p /opt/node
+tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1
+ln -sf /opt/node/bin/node /usr/local/bin/node
+ln -sf /opt/node/bin/npm /usr/local/bin/npm
+ln -sf /opt/node/bin/npx /usr/local/bin/npx
+
+# ---------- Valkey (Redis-wire-compatible; AL2023's dnf package for this) ----------
+dnf install -y valkey
+systemctl enable --now valkey
+
+# ---------- Vault fetch: admin-client's own secret, self-healing ExecStartPre ----------
+# Same self-heal shape as appserv's hashicorp-mode CA/secret_id fetch: non-zero
+# exit -> systemd retries, so this tolerates booting before `make bootstrap`
+# has actually seeded <name_root>/admin-client.
+cat >/usr/local/bin/mos-fetch-admin-client-secret.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
+SECRET_ID="$1"; REGION="$2"; OUT_ENV="$3"
+JSON="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id "$SECRET_ID" --query SecretString --output text 2>/dev/null || true)"
+if [ -z "$JSON" ] || [ "$JSON" = "None" ]; then
+  echo "waiting for secret $SECRET_ID (run make bootstrap on the hub first)" >&2; exit 1
+fi
+umask 077
+jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$JSON" > "$OUT_ENV"
+EOF
+chmod 0755 /usr/local/bin/mos-fetch-admin-client-secret.sh
+
+# ---------- clone + build (public repo, no auth needed) ----------
+install -d -m 0755 /opt/mountos-admin-client
+git clone --depth 1 https://github.com/mountos-io/mountos-admin-client.git /opt/mountos-admin-client
+cd /opt/mountos-admin-client
+npm install
+npm run build
+
+# ---------- non-secret env (deployment-local, not in the vault) ----------
+install -d -m 0755 /etc/mountos
+cat >/etc/mountos/admin-client.env <<EOF
+NODE_ENV=production
+PORT=3001
+MOUNTOS_APPSERV_URL=https://${hub_domain}
+REDIS_URL=redis://127.0.0.1:6379
+WEBAUTHN_RP_ID=${admin_domain}
+WEBAUTHN_RP_NAME=mountOS Dashboard (demo)
+WEBAUTHN_ORIGIN=https://${admin_domain}
+EOF
+chmod 0600 /etc/mountos/admin-client.env
+
+cat >/etc/systemd/system/mountos-admin-client.service <<EOF
+[Unit]
+Description=mountos-admin-client
+After=network-online.target valkey.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=/opt/mountos-admin-client
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/mountos/admin-client.env
+EnvironmentFile=/etc/mountos/admin-client.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-admin-client-secret.sh ${name_root}/admin-client ${region} /etc/mountos/admin-client.secret.env
+ExecStart=/usr/local/bin/npx tsx server/server.ts
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Pre-create so the unit's EnvironmentFile always exists on first boot.
+install -m 0600 /dev/null /etc/mountos/admin-client.secret.env
+
+systemctl daemon-reload
+systemctl enable --now mountos-admin-client
+
+# ---------- Caddy: real public TLS for admin_domain, plain-HTTP proxy to :3001 ----------
+case "$ARCH" in
+  aarch64) CADDY_ARCH=arm64 ;;
+  x86_64)  CADDY_ARCH=amd64 ;;
+esac
+curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=$${CADDY_ARCH}" -o /usr/local/bin/caddy
+chmod 0755 /usr/local/bin/caddy
+
+install -d -m 0755 /etc/caddy
+cat >/etc/caddy/Caddyfile <<EOF
+${admin_domain} {
+	reverse_proxy 127.0.0.1:3001
+}
+EOF
+
+cat >/etc/systemd/system/caddy.service <<'EOF'
+[Unit]
+Description=Caddy (public TLS front for mountos-admin-client)
+After=network-online.target mountos-admin-client.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile
+Restart=always
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now caddy

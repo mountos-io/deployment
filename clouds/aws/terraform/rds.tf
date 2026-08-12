@@ -31,6 +31,22 @@ resource "aws_vpc_security_group_egress_rule" "rds_all" {
   ip_protocol       = "-1"
 }
 
+# Opt-in only (var.share_admin_rds_with_region): lets region_db_mode = byo point
+# REGION_DB_URL at this SAME instance (a different database on it, e.g.
+# mountos_data alongside mountos_admin) instead of provisioning a second RDS
+# instance. Off by default — region_db_mode = byo normally means an operator's
+# own external DB with its own network ACLs, which this package has no reason
+# to open the admin RDS's security group for.
+resource "aws_vpc_security_group_ingress_rule" "rds_from_dataserv_shared" {
+  count                        = local.provision_rds && var.share_admin_rds_with_region ? 1 : 0
+  security_group_id            = aws_security_group.rds[0].id
+  referenced_security_group_id = aws_security_group.dataserv.id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+  description                  = "postgres from dataserv (shared single-RDS mode)"
+}
+
 # Fresh per-apply-lifecycle suffix (not timestamp(), which would diff every
 # plan) so a final snapshot from a prior destroy doesn't collide with the
 # identifier a later destroy tries to reuse in the same account/region.

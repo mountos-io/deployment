@@ -14,4 +14,11 @@ answers.env
 **/override.tf
 **/*_override.tf
 # .terraform.lock.hcl IS committed on purpose — pins provider versions for reproducible applies.
-demo/
+# backend.tf is client-specific (real state bucket/table names) — see backend.tf.sample.
+clouds/*/terraform/backend.tf
+# demo/terraform.tfvars and demo/answers.env already fall under the *.tfvars /
+# answers.env rules above (those patterns match at any depth) — no separate
+# demo/ blanket exclusion needed. Deliberately NOT excluding the whole demo/
+# directory: git can't re-include files inside an ignored directory, which
+# would also hide demo/*.sample (the public, placeholder-only templates meant
+# to ship in this repo for other operators to copy).

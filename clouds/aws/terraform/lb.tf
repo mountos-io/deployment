@@ -1,5 +1,8 @@
+# Everything in this file is the ASG+ALB+NLB path — skipped entirely when
+# var.appserv_direct_ip = true (see appserv-direct.tf for that path instead).
 # ---------- ALB SG: public HTTPS to appserv:8080 ----------
 resource "aws_security_group" "alb" {
+  count       = var.appserv_direct_ip ? 0 : 1
   name        = "${local.name_root}-alb"
   description = "ALB: public HTTPS for hub"
   vpc_id      = aws_vpc.main.id
@@ -7,7 +10,8 @@ resource "aws_security_group" "alb" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "alb_https" {
-  security_group_id = aws_security_group.alb.id
+  count             = var.appserv_direct_ip ? 0 : 1
+  security_group_id = aws_security_group.alb[0].id
   cidr_ipv4         = var.client_cidr
   from_port         = 443
   to_port           = 443
@@ -16,15 +20,17 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_all" {
-  security_group_id = aws_security_group.alb.id
+  count             = var.appserv_direct_ip ? 0 : 1
+  security_group_id = aws_security_group.alb[0].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
 }
 
 # ALB -> appserv:8443 (re-encrypt: ALB terminates client TLS, re-encrypts to appserv).
 resource "aws_vpc_security_group_ingress_rule" "appserv_http_from_alb" {
+  count                        = var.appserv_direct_ip ? 0 : 1
   security_group_id            = aws_security_group.appserv.id
-  referenced_security_group_id = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.alb[0].id
   from_port                    = 8443
   to_port                      = 8443
   ip_protocol                  = "tcp"
@@ -33,7 +39,7 @@ resource "aws_vpc_security_group_ingress_rule" "appserv_http_from_alb" {
 
 # ---------- ACM: only when a hosted zone is supplied (DNS validation) ----------
 resource "aws_acm_certificate" "hub" {
-  count             = var.route53_zone_id != "" ? 1 : 0
+  count             = !var.appserv_direct_ip && var.route53_zone_id != "" ? 1 : 0
   domain_name       = var.hub_domain
   validation_method = "DNS"
   lifecycle {
@@ -43,7 +49,7 @@ resource "aws_acm_certificate" "hub" {
 }
 
 resource "aws_route53_record" "hub_cert_validation" {
-  for_each = var.route53_zone_id != "" ? {
+  for_each = !var.appserv_direct_ip && var.route53_zone_id != "" ? {
     for dvo in aws_acm_certificate.hub[0].domain_validation_options : dvo.domain_name => {
       name   = dvo.resource_record_name
       type   = dvo.resource_record_type
@@ -60,22 +66,24 @@ resource "aws_route53_record" "hub_cert_validation" {
 }
 
 resource "aws_acm_certificate_validation" "hub" {
-  count                   = var.route53_zone_id != "" ? 1 : 0
+  count                   = !var.appserv_direct_ip && var.route53_zone_id != "" ? 1 : 0
   certificate_arn         = aws_acm_certificate.hub[0].arn
   validation_record_fqdns = [for r in aws_route53_record.hub_cert_validation : r.fqdn]
 }
 
 # ---------- ALB (HTTP/HTTPS hub) ----------
 resource "aws_lb" "appserv" {
+  count              = var.appserv_direct_ip ? 0 : 1
   name               = "${local.name_root}-appserv"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
+  security_groups    = [aws_security_group.alb[0].id]
   subnets            = aws_subnet.public[*].id
   tags               = { Name = "${local.name_root}-appserv" }
 }
 
 resource "aws_lb_target_group" "appserv_http" {
+  count       = var.appserv_direct_ip ? 0 : 1
   name        = "${local.name_root}-appserv-http"
   port        = 8443
   protocol    = "HTTPS"
@@ -96,14 +104,15 @@ resource "aws_lb_target_group" "appserv_http" {
 # certificate_arn is set only when route53_zone_id is supplied. Otherwise the operator
 # must attach a cert ARN to this listener (ACM import or external issuance).
 resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.appserv.arn
+  count             = var.appserv_direct_ip ? 0 : 1
+  load_balancer_arn = aws_lb.appserv[0].arn
   port              = 443
   protocol          = "HTTPS"
   certificate_arn   = var.route53_zone_id != "" ? aws_acm_certificate_validation.hub[0].certificate_arn : var.hub_certificate_arn
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.appserv_http.arn
+    target_group_arn = aws_lb_target_group.appserv_http[0].arn
   }
 
   lifecycle {
@@ -118,6 +127,7 @@ resource "aws_lb_listener" "https" {
 # Internal: the SRPC control plane must not be internet-facing. Region services
 # reach it from inside the VPC.
 resource "aws_lb" "appserv_srpc" {
+  count              = var.appserv_direct_ip ? 0 : 1
   name               = "${local.name_root}-appserv-srpc"
   internal           = true
   load_balancer_type = "network"
@@ -130,6 +140,7 @@ resource "aws_lb" "appserv_srpc" {
 }
 
 resource "aws_lb_target_group" "appserv_srpc" {
+  count       = var.appserv_direct_ip ? 0 : 1
   name        = "${local.name_root}-appserv-srpc"
   port        = 9443
   protocol    = "TCP"
@@ -145,12 +156,13 @@ resource "aws_lb_target_group" "appserv_srpc" {
 }
 
 resource "aws_lb_listener" "srpc" {
-  load_balancer_arn = aws_lb.appserv_srpc.arn
+  count             = var.appserv_direct_ip ? 0 : 1
+  load_balancer_arn = aws_lb.appserv_srpc[0].arn
   port              = 9443
   protocol          = "TCP"
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.appserv_srpc.arn
+    target_group_arn = aws_lb_target_group.appserv_srpc[0].arn
   }
 }

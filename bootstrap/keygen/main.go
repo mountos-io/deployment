@@ -58,23 +58,46 @@ func main() {
 		fmt.Fprintln(os.Stderr, "keygen:", err)
 		os.Exit(1)
 	}
+	// dashboardPub/Priv: mountos-admin-client's own session/refresh JWT pair
+	// (DASHBOARD_SIGNING_KEY/DASHBOARD_VERIFICATION_KEY).
+	dashPub, dashPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "keygen:", err)
+		os.Exit(1)
+	}
+	// provider2dashPub/Priv: the operator's own ephemeral-login keypair. The
+	// operator's backend signs short-lived (~60s) login tokens with the
+	// private half; the dashboard verifies with the public half
+	// (PROVIDER2DASHBOARD_VERIFICATION_KEY). Generated here so a self-operated
+	// deployment (no separate customer backend) can mint its own login tokens.
+	provPub, provPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "keygen:", err)
+		os.Exit(1)
+	}
 	// Hub seed uses appserv/admin/hmac/api_master; region seed uses dataserv/gcserv
 	// plus blockserv (region-scoped, key material generated unconditionally
-	// regardless of whether the service is actually run there).
+	// regardless of whether the service is actually run there). dashboard_*/
+	// provider2dashboard_* are generated unconditionally too, regardless of
+	// whether mountos-admin-client is actually deployed.
 	// Each consumer reads only the fields it needs; the rest are ignored.
 	out := map[string]string{
-		"appserv_signing":        b64(appPriv),
-		"appserv_verification":   b64(appPub),
-		"admin_private":          b64(admPriv), // operator keeps this safe; signs admin SDK JWTs
-		"admin_public":           b64(admPub),  // -> PROVIDER_VERIFICATION_KEY
-		"dashboard_hmac":         randB64(32),
-		"api_master":             randB64(32),
-		"dataserv_signing":       b64(dataPriv),
-		"dataserv_verification":  b64(dataPub),
-		"gcserv_signing":         b64(gcPriv),
-		"gcserv_verification":    b64(gcPub),
-		"blockserv_signing":      b64(blkPriv),
-		"blockserv_verification": b64(blkPub),
+		"appserv_signing":                 b64(appPriv),
+		"appserv_verification":            b64(appPub),
+		"admin_private":                   b64(admPriv), // operator keeps this safe; signs admin SDK JWTs
+		"admin_public":                    b64(admPub),  // -> PROVIDER_VERIFICATION_KEY
+		"dashboard_hmac":                  randB64(32),
+		"api_master":                      randB64(32),
+		"dataserv_signing":                b64(dataPriv),
+		"dataserv_verification":           b64(dataPub),
+		"gcserv_signing":                  b64(gcPriv),
+		"gcserv_verification":             b64(gcPub),
+		"blockserv_signing":               b64(blkPriv),
+		"blockserv_verification":          b64(blkPub),
+		"dashboard_signing":               b64(dashPriv), // -> DASHBOARD_SIGNING_KEY
+		"dashboard_verification":          b64(dashPub),  // -> DASHBOARD_VERIFICATION_KEY
+		"provider2dashboard_signing":      b64(provPriv), // operator keeps this safe; mints dashboard login tokens
+		"provider2dashboard_verification": b64(provPub),  // -> PROVIDER2DASHBOARD_VERIFICATION_KEY
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

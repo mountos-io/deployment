@@ -154,6 +154,61 @@ variable "hub_certificate_arn" {
   default     = ""
 }
 
+# ---------- direct-IP appserv (small/single-instance deployments) ----------
+# Default false: production keeps the ASG + ALB(443)/NLB(9443) path in compute.tf/lb.tf
+# unchanged. true swaps to a single aws_instance with its own Elastic IP and Caddy
+# terminating a real Let's Encrypt cert for hub_domain — no load balancer, no NAT,
+# matching the direct-IP/custom-protocol pattern dataserv and blockserv already use.
+# Trades the ALB's automatic stable-address-across-replacement property for cost;
+# appropriate for appserv_count = 1 deployments (dev/demo/small), not multi-instance HA.
+variable "appserv_direct_ip" {
+  type        = bool
+  description = "true: single direct-IP appserv instance + Elastic IP + Caddy, no ALB/NLB/NAT. false (default): the production ASG+ALB+NLB path."
+  default     = false
+
+  validation {
+    condition     = !var.appserv_direct_ip || var.appserv_count == 1
+    error_message = "appserv_direct_ip is a single-instance deployment shape — set appserv_count = 1."
+  }
+}
+
+# ---------- admin dashboard (mountos-admin-client), optional ----------
+# Default false: no admin instance, no cost, nothing changes for existing deployments.
+variable "admin_client_enabled" {
+  type        = bool
+  description = "true: provision a small direct-IP instance running mountos-admin-client (own Elastic IP + Caddy for a real cert on admin_domain). false (default): not deployed."
+  default     = false
+}
+
+variable "admin_domain" {
+  type        = string
+  description = "Public FQDN for the admin dashboard (e.g. admin.acme.com). REQUIRED when admin_client_enabled = true — separate domain from hub_domain, its own WebAuthn origin."
+  default     = ""
+
+  validation {
+    condition     = !var.admin_client_enabled || (length(var.admin_domain) > 0 && !can(regex("(^|\\.)(example|changeme|replace|your-domain)(\\.|$)", lower(var.admin_domain))))
+    error_message = "Set admin_domain to a real public FQDN when admin_client_enabled = true (placeholders like example/changeme/replace are rejected)."
+  }
+}
+
+variable "admin_client_instance_type" {
+  type        = string
+  description = "EC2 instance type for the admin-client instance (arm64)."
+  default     = "t4g.small"
+}
+
+# ---------- shared single-RDS mode (cost-saving, small deployments) ----------
+# Default false: production keeps the hub admin DB and region DB fully separate
+# (see rds.tf/region-rds.tf), matching mountOS's documented topology (one DB
+# per region, decoupled from the hub). true opens the admin RDS's security
+# group to dataserv so region_db_mode = byo can point REGION_DB_URL at the SAME
+# instance (a different database on it) instead of provisioning a second RDS.
+variable "share_admin_rds_with_region" {
+  type        = bool
+  description = "true: open the admin RDS's security group to dataserv, for region_db_mode = byo pointing REGION_DB_URL at the same instance (different database). false (default): no change to the admin RDS's security group."
+  default     = false
+}
+
 locals {
   provision_rds = var.admin_db_mode == "provision-rds"
   hub_hashicorp = var.vault_provider == "hashicorp"

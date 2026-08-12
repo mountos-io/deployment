@@ -83,7 +83,7 @@ resource "aws_launch_template" "dataserv" {
     region               = var.region
     name_root            = local.name_root
     region_cluster_id    = var.region_cluster_id
-    srpc_addr            = "${aws_lb.appserv_srpc.dns_name}:9443"
+    srpc_addr            = local.appserv_srpc_addr
     arena_size           = var.arena_size
     mos_version          = var.mos_version
     mos_installer_sha256 = var.mos_installer_sha256

@@ -117,8 +117,10 @@ resource "aws_cloudwatch_metric_alarm" "region_rds_connections_high" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
-# ---------- ASG in-service capacity ----------
+# ---------- ASG in-service capacity (ALB path only — direct-IP mode is a single
+# plain aws_instance, not an ASG; nothing to alarm on here in that mode) ----------
 resource "aws_cloudwatch_metric_alarm" "appserv_in_service_low" {
+  count               = var.appserv_direct_ip ? 0 : 1
   alarm_name          = "${local.name_root}-appserv-in-service-low"
   alarm_description   = "appserv in-service instances below desired."
   namespace           = "AWS/AutoScaling"
@@ -130,7 +132,7 @@ resource "aws_cloudwatch_metric_alarm" "appserv_in_service_low" {
   evaluation_periods  = 2
   datapoints_to_alarm = 2
   treat_missing_data  = "breaching"
-  dimensions          = { AutoScalingGroupName = aws_autoscaling_group.appserv.name }
+  dimensions          = { AutoScalingGroupName = aws_autoscaling_group.appserv[0].name }
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
@@ -150,8 +152,9 @@ resource "aws_cloudwatch_metric_alarm" "dataserv_in_service_low" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
-# ---------- load-balancer target health ----------
+# ---------- load-balancer target health (ALB path only — no LB in direct-IP mode) ----------
 resource "aws_cloudwatch_metric_alarm" "alb_unhealthy_hosts" {
+  count               = var.appserv_direct_ip ? 0 : 1
   alarm_name          = "${local.name_root}-alb-unhealthy-hosts"
   alarm_description   = "ALB has unhealthy appserv HTTP targets."
   namespace           = "AWS/ApplicationELB"
@@ -164,13 +167,14 @@ resource "aws_cloudwatch_metric_alarm" "alb_unhealthy_hosts" {
   datapoints_to_alarm = 2
   treat_missing_data  = "notBreaching"
   dimensions = {
-    LoadBalancer = aws_lb.appserv.arn_suffix
-    TargetGroup  = aws_lb_target_group.appserv_http.arn_suffix
+    LoadBalancer = aws_lb.appserv[0].arn_suffix
+    TargetGroup  = aws_lb_target_group.appserv_http[0].arn_suffix
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
 }
 
 resource "aws_cloudwatch_metric_alarm" "nlb_unhealthy_hosts" {
+  count               = var.appserv_direct_ip ? 0 : 1
   alarm_name          = "${local.name_root}-nlb-unhealthy-hosts"
   alarm_description   = "NLB has unhealthy appserv SRPC targets."
   namespace           = "AWS/NetworkELB"
@@ -183,8 +187,8 @@ resource "aws_cloudwatch_metric_alarm" "nlb_unhealthy_hosts" {
   datapoints_to_alarm = 2
   treat_missing_data  = "notBreaching"
   dimensions = {
-    LoadBalancer = aws_lb.appserv_srpc.arn_suffix
-    TargetGroup  = aws_lb_target_group.appserv_srpc.arn_suffix
+    LoadBalancer = aws_lb.appserv_srpc[0].arn_suffix
+    TargetGroup  = aws_lb_target_group.appserv_srpc[0].arn_suffix
   }
   alarm_actions = [aws_sns_topic.alerts.arn]
 }

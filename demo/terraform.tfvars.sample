@@ -1,0 +1,73 @@
+# mountOS AWS demo/dev topology — a small, cheap, disposable alternative to the
+# main clouds/aws/terraform/terraform.tfvars.sample (which targets production
+# HA). Direct-IP everywhere (no ALB/NLB/NAT), one shared RDS instance instead
+# of two, small instance types throughout. Copy to terraform.tfvars and fill
+# in the REQUIRED fields (hub_domain, admin_domain, client_cidr). Full
+# walkthrough: mountos-servers/docs/ai/static/skills/deploy.md.
+
+region = "us-west-2" # any region works; pick the one closest to you
+mode   = "non-production"
+
+# Set only if this AWS account already hosts another mountOS deployment, so
+# resource/secret names don't collide.
+resource_prefix = ""
+
+# ---------- hub (direct-IP, no ALB/NLB/NAT) ----------
+hub_domain            = "" # REQUIRED — your real public FQDN, e.g. hub.acme.com (placeholders rejected)
+appserv_count         = 1
+appserv_direct_ip     = true
+appserv_instance_type = "t4g.medium" # small — auth/management plane only, no data path
+
+# CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464,
+# blockserv 9100) and the admin dashboard. REPLACE with your own IP/CIDR —
+# do not use 0.0.0.0/0.
+client_cidr = "203.0.113.0/24"
+
+enable_nat = false # nothing needs it — appserv/dataserv/blockserv/admin are all direct-IP
+
+# ---------- admin dashboard (its own instance + domain) ----------
+admin_client_enabled       = true
+admin_domain               = "" # REQUIRED when admin_client_enabled — e.g. admin.acme.com, a DIFFERENT domain from hub_domain
+admin_client_instance_type = "t4g.small"
+
+# ---------- database: one shared RDS instance instead of two ----------
+admin_db_mode                = "provision-rds"
+admin_db_provider_version    = "18"
+db_instance_class            = "db.t4g.medium"
+db_allocated_gb               = 20
+db_username                   = "mountos"
+share_admin_rds_with_region   = true
+
+# ---------- secret store ----------
+vault_provider = "aws"
+
+# ---------- binary ----------
+mos_version = "" # empty installs latest
+
+# ---------- region (dataserv + co-located gcserv) ----------
+# region_cluster_id is a PLACEHOLDER (all-zero UUID) for the FIRST apply —
+# dataserv boots but can't register until this is replaced with the real
+# cluster UUID from the provision step (create an account + region on the hub
+# via the Admin SDK — see mountos-servers/docs/ai/static/skills/provision.md),
+# then `make apply` again.
+region_cluster_id      = "00000000-0000-0000-0000-000000000000"
+dataserv_count         = 3
+dataserv_instance_type = "r7g.large" # memory-optimized, 1/4 the size of the production default
+arena_size              = "1GB"
+raft_ebs_gb             = 30 # reduced from the 100GB production default; demo data is disposable
+region_db_mode          = "byo" # points at the shared admin RDS instance, see REGION_DB_URL in answers.sample.env
+region_vault_provider   = "aws"
+gcserv_colocated        = true
+
+# ---------- blockserv (add in a later apply, once a block storage exists) ----------
+# Left disabled for the first apply — block_volume_id UUIDs don't exist until
+# a block storage is provisioned via the Admin SDK after the hub+region are up.
+block_enable = false
+# block_members = [
+#   { block_volume_id = "<uuid-1>", az_index = 0 },
+#   { block_volume_id = "<uuid-2>", az_index = 1 },
+# ]
+block_instance_type    = "m7g.large" # small — size up later once testing real byte-plane load
+block_cache_gb          = 50
+block_cache_iops       = 3000 # gp3 baseline, no extra IOPS charge
+block_cache_throughput = 125  # gp3 baseline, no extra throughput charge

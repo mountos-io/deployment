@@ -117,7 +117,7 @@ resource "aws_instance" "blockserv" {
     region               = var.region
     name_root            = local.name_root
     region_cluster_id    = var.region_cluster_id
-    srpc_addr            = "${aws_lb.appserv_srpc.dns_name}:9443"
+    srpc_addr            = local.appserv_srpc_addr
     advertise_addr       = aws_eip.blockserv[each.key].public_ip
     block_volume_id      = each.value.block_volume_id
     delete_mode          = var.block_delete_mode

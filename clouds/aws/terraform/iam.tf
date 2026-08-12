@@ -92,6 +92,14 @@ locals {
     "${local.sm_arn_prefix}:${local.name_root}/s3creds/*",
     "${local.sm_arn_prefix}:${local.name_root}/volcreds/*",
   ]
+
+  # admin-client: read-only, own config only — never appserv/dataserv/gcserv/
+  # blockserv/api-master/s3creds/volcreds. It reaches the Admin API the same
+  # way any other Admin SDK caller does (over HTTPS to hub_domain), not via
+  # direct service-to-service trust.
+  admin_client_secret_arns = [
+    "${local.sm_arn_prefix}:${local.name_root}/admin-client-??????",
+  ]
 }
 
 data "aws_iam_policy_document" "appserv_secretstore" {
@@ -155,4 +163,22 @@ resource "aws_iam_role_policy" "blockserv_secretstore" {
   name   = "${local.name_root}-blockserv-secretstore"
   role   = aws_iam_role.blockserv[0].id
   policy = data.aws_iam_policy_document.region_worker_secretstore.json
+}
+
+data "aws_iam_policy_document" "admin_client_secretstore" {
+  statement {
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+    resources = local.admin_client_secret_arns
+  }
+  statement {
+    actions   = ["secretsmanager:ListSecrets"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "admin_client_secretstore" {
+  count  = var.admin_client_enabled && var.vault_provider == "aws" ? 1 : 0
+  name   = "${local.name_root}-admin-client-secretstore"
+  role   = aws_iam_role.admin_client[0].id
+  policy = data.aws_iam_policy_document.admin_client_secretstore.json
 }
