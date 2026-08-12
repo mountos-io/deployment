@@ -3,30 +3,33 @@ set -euo pipefail
 
 # mountos-admin-client (var.admin_client_enabled). Source is public
 # (github.com/mountos-io/mountos-admin-client) — cloned and built here, no
-# prebuilt artifact exists yet. Runs under Node (the documented `make proxy`
-# path: npx tsx server/server.ts), fronted by Caddy for a real public cert on
-# admin_domain (separate domain/origin from hub_domain — see WEBAUTHN_* below).
+# prebuilt artifact exists yet. Runs under Node + tsx (one of the repo's own
+# three officially supported runtimes — Makefile's TS_EXEC_node := npx tsx),
+# fronted by Caddy for a real public cert on admin_domain (separate
+# domain/origin from hub_domain — see WEBAUTHN_* below).
 
-# ---------- Node.js 22 (official static tarball, no dnf repo dependency) ----------
+# ---------- Valkey (Redis-wire-compatible; AL2023's dnf package for this) ----------
+dnf install -y valkey git jq
+systemctl enable --now valkey
+
+# ---------- Node.js, latest LTS (resolved live from nodejs.org's own release
+# index, not a hand-pinned version — a pinned version drifts stale; jq (above)
+# picks the first entry whose "lts" field isn't false, since the index is
+# newest-first) ----------
 ARCH="$(uname -m)"
 case "$ARCH" in
   aarch64) NODE_ARCH=arm64 ;;
   x86_64)  NODE_ARCH=x64 ;;
   *) echo "unsupported arch for Node: $ARCH" >&2; exit 1 ;;
 esac
-# Pinned to a known-real LTS release rather than guessing a "latest" patch
-# version that may not exist yet on a given run date; bump by hand if needed.
-NODE_VERSION="22.11.0"
+NODE_VERSION="$(curl -fsSL https://nodejs.org/dist/index.json | jq -r '[.[] | select(.lts != false)][0].version' | sed 's/^v//')"
+[ -n "$NODE_VERSION" ] || { echo "failed to resolve latest Node.js LTS version" >&2; exit 1; }
 curl -fsSL "https://nodejs.org/dist/v$${NODE_VERSION}/node-v$${NODE_VERSION}-linux-$${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz
 mkdir -p /opt/node
 tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1
 ln -sf /opt/node/bin/node /usr/local/bin/node
 ln -sf /opt/node/bin/npm /usr/local/bin/npm
 ln -sf /opt/node/bin/npx /usr/local/bin/npx
-
-# ---------- Valkey (Redis-wire-compatible; AL2023's dnf package for this) ----------
-dnf install -y valkey git jq
-systemctl enable --now valkey
 
 # ---------- Vault fetch: admin-client's own secret, self-healing ExecStartPre ----------
 # Same self-heal shape as appserv's hashicorp-mode CA/secret_id fetch: non-zero

@@ -82,6 +82,7 @@ resource "aws_launch_template" "dataserv" {
     vault_ca_source      = local.region_vault_ca_source
     region               = var.region
     name_root            = local.name_root
+    resource_prefix      = var.resource_prefix
     region_cluster_id    = var.region_cluster_id
     srpc_addr            = local.appserv_srpc_addr
     arena_size           = var.arena_size

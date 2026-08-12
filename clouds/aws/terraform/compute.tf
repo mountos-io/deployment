@@ -25,6 +25,7 @@ resource "aws_launch_template" "appserv" {
     vault_ca_source      = local.hub_vault_ca_source
     region               = var.region
     name_root            = local.name_root
+    resource_prefix      = var.resource_prefix
     mos_version          = var.mos_version
     mos_installer_sha256 = var.mos_installer_sha256
   }))

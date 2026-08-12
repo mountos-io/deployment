@@ -64,6 +64,7 @@ VAULT_CACERT=/etc/mountos/vault-ca.pem
 VAULT_PROVIDER=aws
 VAULT_AWS_REGION=${region}
 %{ endif ~}
+VAULT_RESOURCE_PREFIX=${resource_prefix}
 REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 BLOCK_VOLUME_ID=${block_volume_id}

@@ -56,6 +56,7 @@ VAULT_CACERT=/etc/mountos/vault-ca.pem
 VAULT_PROVIDER=aws
 VAULT_AWS_REGION=${region}
 %{ endif ~}
+VAULT_RESOURCE_PREFIX=${resource_prefix}
 PORT=8080
 HTTPS_PORT=8443
 TLS_CERT_FILE=/etc/mountos/appserv-cert.pem

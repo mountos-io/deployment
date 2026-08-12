@@ -116,6 +116,7 @@ resource "aws_instance" "blockserv" {
     vault_ca_source      = local.region_vault_ca_source
     region               = var.region
     name_root            = local.name_root
+    resource_prefix      = var.resource_prefix
     region_cluster_id    = var.region_cluster_id
     srpc_addr            = local.appserv_srpc_addr
     advertise_addr       = aws_eip.blockserv[each.key].public_ip
