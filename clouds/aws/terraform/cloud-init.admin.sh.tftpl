@@ -2,11 +2,15 @@
 set -euo pipefail
 
 # mountos-admin-client (var.admin_client_enabled). Source is public
-# (github.com/mountos-io/mountos-admin-client) — cloned and built here, no
-# prebuilt artifact exists yet. Runs under Node + tsx (one of the repo's own
-# three officially supported runtimes — Makefile's TS_EXEC_node := npx tsx),
-# fronted by Caddy for a real public cert on admin_domain (separate
-# domain/origin from hub_domain — see WEBAUTHN_* below).
+# (github.com/mountos-io/mountos-admin-client) — cloned here, NOT built here:
+# the repo commits its production `build/` output on purpose (see its
+# README/.gitignore) precisely so a small instance never has to run vite's
+# SSR bundling (too memory-heavy for admin_client_instance_type's small RAM —
+# confirmed by hitting that OOM directly before this approach). Runs under
+# Node + tsx (one of the repo's own three officially supported runtimes —
+# Makefile's TS_EXEC_node := npx tsx), fronted by Caddy for a real public
+# cert on admin_domain (separate domain/origin from hub_domain — see
+# WEBAUTHN_* below).
 
 # ---------- Valkey (Redis-wire-compatible; AL2023's dnf package for this) ----------
 dnf install -y valkey git jq
@@ -48,12 +52,15 @@ jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$JSON" > "$OUT_ENV"
 EOF
 chmod 0755 /usr/local/bin/mos-fetch-admin-client-secret.sh
 
-# ---------- clone + build (public repo, no auth needed) ----------
+# ---------- clone only, no build (public repo, no auth needed) ----------
+# build/ arrives already committed. --omit=dev skips vite/esbuild/svelte-kit
+# entirely (only needed to produce build/, never to serve it) — just the
+# runtime deps server.ts actually imports. --ci (exact lockfile match) since
+# the repo's own pre-commit hook guarantees the committed lockfile is valid.
 install -d -m 0755 /opt/mountos-admin-client
 git clone --depth 1 https://github.com/mountos-io/mountos-admin-client.git /opt/mountos-admin-client
 cd /opt/mountos-admin-client
-npm install
-npm run build
+npm ci --omit=dev
 
 # ---------- non-secret env (deployment-local, not in the vault) ----------
 install -d -m 0755 /etc/mountos
