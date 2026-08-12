@@ -3,8 +3,10 @@ set -euo pipefail
 
 # mountos-admin-client (var.admin_client_enabled). Source is public
 # (github.com/mountos-io/mountos-admin-client) — cloned here, NOT built here:
-# the repo commits its production `build/` output on purpose (see its
-# README/.gitignore) precisely so a small instance never has to run vite's
+# the repo commits its production build as a single bundled archive,
+# build.tar.gz (see its README/.gitignore — one archive, not the raw build/
+# tree, since content-hashed filenames would make a tracked directory an
+# unreviewable diff), precisely so a small instance never has to run vite's
 # SSR bundling (too memory-heavy for admin_client_instance_type's small RAM —
 # confirmed by hitting that OOM directly before this approach). Runs under
 # Node + tsx (one of the repo's own three officially supported runtimes —
@@ -53,13 +55,16 @@ EOF
 chmod 0755 /usr/local/bin/mos-fetch-admin-client-secret.sh
 
 # ---------- clone only, no build (public repo, no auth needed) ----------
-# build/ arrives already committed. --omit=dev skips vite/esbuild/svelte-kit
-# entirely (only needed to produce build/, never to serve it) — just the
-# runtime deps server.ts actually imports. --ci (exact lockfile match) since
-# the repo's own pre-commit hook guarantees the committed lockfile is valid.
+# build.tar.gz arrives already committed; extract it, don't build it.
+# --omit=dev skips vite/esbuild/svelte-kit entirely (only needed to produce
+# the archive, never to serve it) — just the runtime deps server.ts actually
+# imports. npm ci (exact lockfile match) since the repo's own pre-commit hook
+# guarantees the committed lockfile is valid.
 install -d -m 0755 /opt/mountos-admin-client
 git clone --depth 1 https://github.com/mountos-io/mountos-admin-client.git /opt/mountos-admin-client
 cd /opt/mountos-admin-client
+mkdir -p build
+tar -xzf build.tar.gz -C build
 npm ci --omit=dev
 
 # ---------- non-secret env (deployment-local, not in the vault) ----------
