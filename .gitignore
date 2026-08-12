@@ -14,3 +14,4 @@ answers.env
 **/override.tf
 **/*_override.tf
 # .terraform.lock.hcl IS committed on purpose — pins provider versions for reproducible applies.
+demo/
