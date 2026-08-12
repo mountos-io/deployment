@@ -79,20 +79,20 @@ EOF
 chmod 0600 /etc/mountos/dataserv.env
 
 # Install dataserv (+ gcserv when co-located). No license file: license arrives
-# from the hub over the heartbeat (hublicense model).
+# from the hub over the heartbeat (hublicense model). One invocation per
+# package: the installer only honors the LAST --pkg flag when given more than
+# one in a single call, silently skipping the earlier ones with no error.
 curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
-%{ if gcserv_colocated ~}
-%{ if mos_version != "" ~}
-bash /tmp/mos-install.sh --pkg mountos-dataserv --pkg mountos-gcserv --version ${mos_version}
-%{ else ~}
-bash /tmp/mos-install.sh --pkg mountos-dataserv --pkg mountos-gcserv
-%{ endif ~}
-%{ else ~}
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-dataserv --version ${mos_version}
+%{ if gcserv_colocated ~}
+bash /tmp/mos-install.sh --pkg mountos-gcserv --version ${mos_version}
+%{ endif ~}
 %{ else ~}
 bash /tmp/mos-install.sh --pkg mountos-dataserv
+%{ if gcserv_colocated ~}
+bash /tmp/mos-install.sh --pkg mountos-gcserv
 %{ endif ~}
 %{ endif ~}
 
@@ -114,7 +114,13 @@ EnvironmentFile=/etc/mountos/dataserv.env
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/${name_root}/region/vault-ca%{ else }-%{ endif } /${name_root}/region/vault-secret-id ${region} /etc/mountos/dataserv.secret.env
 %{ endif ~}
-ExecStartPre=/usr/local/bin/dataserv db install
+# '-' prefix: db install is a one-time schema setup shared by every dataserv
+# node pointed at the same regional DB (region_db_mode=byo especially, but
+# true in general) — the first node to boot installs it, every other node
+# (and every restart of any node, including this one) hits "already
+# installed" and exits non-zero. Not fatal: without '-', that failure would
+# block ExecStart on every restart after the first successful install.
+ExecStartPre=-/usr/local/bin/dataserv db install
 ExecStart=/usr/local/bin/dataserv
 Restart=always
 RestartSec=10

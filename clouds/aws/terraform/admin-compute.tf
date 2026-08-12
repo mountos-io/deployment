@@ -98,10 +98,11 @@ resource "aws_instance" "admin_client" {
   }
 
   user_data = base64encode(templatefile("${path.module}/cloud-init.admin.sh.tftpl", {
-    region       = var.region
-    name_root    = local.name_root
-    admin_domain = var.admin_domain
-    hub_domain   = var.hub_domain
+    region             = var.region
+    name_root          = local.name_root
+    admin_domain       = var.admin_domain
+    hub_domain         = var.hub_domain
+    appserv_private_ip = var.appserv_direct_ip ? aws_instance.appserv_direct[0].private_ip : ""
   }))
 
   tags = { Name = "${local.name_root}-admin-client" }

@@ -275,16 +275,21 @@ VERIFY_KEY="$(sec appserv_verification)" jq -n --argjson cur "$existing_v" \
 # MOUNTOS_SDK_SIGNING_KEY reuses admin_private (the SAME operator root
 # credential used everywhere else for Admin SDK calls; appserv enforces
 # role-scoped authorization server-side on every proxied request regardless).
-# provider2dashboard_signing (the PRIVATE half) is deliberately NOT seeded
-# here — it stays operator-side in secrets.local.json, used locally to mint
-# login tokens (see mountos-admin-client's README "Test Token Generation");
-# only the public verification half goes to the running dashboard.
+# DASHBOARD_USER_HMAC_KEY reuses the SAME dashboard_hmac value written into
+# appserv's own secret above — the dashboard signs the X-MountOS-Dashboard-User
+# header with it, appserv verifies with its copy; a mismatch here fails every
+# proxied request. provider2dashboard_signing (the PRIVATE half) is
+# deliberately NOT seeded here — it stays operator-side in secrets.local.json,
+# used locally to mint login tokens (see mountos-admin-client's README "Test
+# Token Generation"); only the public verification half goes to the running
+# dashboard.
 echo "==> write secrets (mountos-admin-client)"
 ADMIN_SDK_KEY="$(sec admin_private)" \
   DASH_SIGN="$(sec dashboard_signing)" DASH_VERIFY="$(sec dashboard_verification)" \
-  PROV_VERIFY="$(sec provider2dashboard_verification)" \
+  PROV_VERIFY="$(sec provider2dashboard_verification)" HMAC_KEY="$(sec dashboard_hmac)" \
   jq -n '{MOUNTOS_SDK_SIGNING_KEY:env.ADMIN_SDK_KEY,DASHBOARD_SIGNING_KEY:env.DASH_SIGN,
-          DASHBOARD_VERIFICATION_KEY:env.DASH_VERIFY,PROVIDER2DASHBOARD_VERIFICATION_KEY:env.PROV_VERIFY}' \
+          DASHBOARD_VERIFICATION_KEY:env.DASH_VERIFY,PROVIDER2DASHBOARD_VERIFICATION_KEY:env.PROV_VERIFY,
+          DASHBOARD_USER_HMAC_KEY:env.HMAC_KEY}' \
   | kv_put admin-client
 
 if [[ "$VAULT_PROVIDER" == "hashicorp" ]]; then

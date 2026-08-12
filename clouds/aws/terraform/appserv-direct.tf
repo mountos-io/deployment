@@ -81,6 +81,20 @@ resource "aws_vpc_security_group_ingress_rule" "appserv_https_direct" {
   description       = "client HTTPS (Caddy)"
 }
 
+# admin-client's server-side proxy calls appserv's Admin API over HTTPS too,
+# but it isn't the operator's own client_cidr — a distinct instance, SG-to-SG
+# so it survives EIP changes (same pattern as the dataserv/gcserv/blockserv
+# SRPC rules below, not a hardcoded IP).
+resource "aws_vpc_security_group_ingress_rule" "appserv_https_from_admin_client" {
+  count                        = var.appserv_direct_ip && var.admin_client_enabled ? 1 : 0
+  security_group_id            = aws_security_group.appserv.id
+  referenced_security_group_id = aws_security_group.admin_client[0].id
+  from_port                    = 443
+  to_port                      = 443
+  ip_protocol                  = "tcp"
+  description                  = "admin-client proxy HTTPS"
+}
+
 # Let's Encrypt HTTP-01 challenge traffic can originate from any of their
 # validation servers, not a fixed range — this one rule is intentionally
 # broader than client_cidr; it only ever serves the ACME challenge + a
@@ -103,7 +117,23 @@ resource "aws_vpc_security_group_ingress_rule" "appserv_http_acme" {
 locals {
   # Single source of truth for "how do region services reach appserv's SRPC",
   # used by block-compute.tf and region-compute.tf instead of hardcoding the
-  # NLB's dns_name. direct-IP: the Elastic IP. ALB path: the NLB's DNS name
-  # (unchanged from before).
-  appserv_srpc_addr = var.appserv_direct_ip ? "${aws_eip.appserv[0].public_ip}:9443" : "${aws_lb.appserv_srpc[0].dns_name}:9443"
+  # NLB's dns_name. ALB path: the NLB's DNS name (unchanged from before).
+  # direct-IP: appserv's PRIVATE IP, not its Elastic IP, in BOTH region VPC
+  # modes:
+  #   shared (default): dataserv/gcserv/blockserv are in the SAME VPC as
+  #     appserv. An EC2 instance cannot reliably reach a VPC-mate's Elastic
+  #     IP by hairpinning through the Internet Gateway back into the same
+  #     VPC (AWS does not dependably support that path) — SRPC dials would
+  #     hang until timeout.
+  #   dedicated: region services are in a peered VPC. VPC peering only
+  #     routes each side's PRIVATE CIDR (region-network.tf's
+  #     aws_route.region_public_to_hub / hub_to_region) — the Elastic IP
+  #     isn't part of that CIDR, so traffic to it wouldn't even take the
+  #     peering route; it would exit via each VPC's own Internet Gateway
+  #     onto the public internet instead, where security-groups.tf's
+  #     region_vpc_cidr-scoped rules (appserv_srpc_from_region_cidr et al.,
+  #     matching the peering routes, not a public path) wouldn't match it.
+  #     The private IP is what those existing rules and routes actually
+  #     cover, in both modes.
+  appserv_srpc_addr = var.appserv_direct_ip ? "${aws_instance.appserv_direct[0].private_ip}:9443" : "${aws_lb.appserv_srpc[0].dns_name}:9443"
 }

@@ -67,6 +67,20 @@ mkdir -p build
 tar -xzf build.tar.gz -C build
 npm ci --omit=dev
 
+# ---------- /etc/hosts override: reach appserv over its private VPC IP ----------
+# admin-client and appserv (appserv_direct_ip mode) are both single EC2
+# instances in the same VPC, each with its own Elastic IP. An EC2 instance
+# generally cannot reliably reach a VPC-mate's Elastic IP by hairpinning
+# through the Internet Gateway back into the same VPC — AWS does not
+# dependably support that path, and traffic to hub_domain would otherwise
+# hang until it times out. Routing over the private IP instead is the normal
+# fix for same-VPC traffic; the hostname stays hub_domain (still the correct
+# TLS SNI for Caddy's real cert on that instance), only the DNS resolution
+# changes, so MOUNTOS_APPSERV_URL needs no change and no extra cert handling.
+%{ if appserv_private_ip != "" ~}
+echo "${appserv_private_ip} ${hub_domain}" >>/etc/hosts
+%{ endif ~}
+
 # ---------- non-secret env (deployment-local, not in the vault) ----------
 install -d -m 0755 /etc/mountos
 cat >/etc/mountos/admin-client.env <<EOF
