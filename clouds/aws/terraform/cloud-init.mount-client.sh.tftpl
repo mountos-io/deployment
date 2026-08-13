@@ -1,0 +1,49 @@
+#!/bin/bash
+set -euo pipefail
+
+# Disposable mount-test client. Installs ONLY the mountos client + FUSE; holds
+# no credentials. The volume access key pair is supplied at mount time by the
+# operator (see the aws-demo-env skill), so it never lands in user_data,
+# instance metadata, or tfstate.
+
+# fuse3 is what the client mounts through; the rest is for inspecting a mount
+# by hand (ls/cat/dd live in coreutils, already present).
+dnf install -y fuse3 tar
+
+# ONE --pkg per invocation: the installer honors only the LAST --pkg flag when
+# given more than one in a single call, silently skipping the earlier ones.
+curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+%{ if mos_version != "" ~}
+bash /tmp/mos-install.sh --pkg mountos-cli-linux --version ${mos_version}
+%{ else ~}
+bash /tmp/mos-install.sh --pkg mountos-cli-linux
+%{ endif ~}
+
+# Mount point the operator's mount command targets by default.
+install -d -m 0755 /mnt/mountos
+
+# user_allow_other: the client may mount with -o allow_other so a non-root
+# shell can read the mount; harmless on a disposable single-purpose tester.
+grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo user_allow_other >>/etc/fuse.conf
+
+# Breadcrumb so `ssm start-session` lands on something self-explanatory rather
+# than a bare prompt — this box is created and destroyed repeatedly, so the
+# next person (or the next session) should not have to reconstruct the usage.
+cat >/etc/motd <<'EOF'
+mountOS mount-test client (disposable).
+
+  mountos --version
+  mountos mount -m /mnt/mountos \
+    --discovery-url  "$MOUNTOS_DISCOVERY_URL" \
+    --access-key-id  "$MOUNTOS_ACCESS_KEY_ID" \
+    --secret-access-key "$MOUNTOS_SECRET_ACCESS_KEY"
+
+Credentials are NOT stored on this box - export them for the session only.
+This instance lives in the DEFAULT VPC on purpose: it must reach dataserv over
+the PUBLIC internet, like a real client. An instance inside the mountOS VPC
+cannot reliably reach a VPC-mate's public IP (AWS hairpin) and would only work
+via INTERNAL_PREFER_PRIVATE_DISCOVERY, i.e. a path no real user takes.
+EOF
+
+echo "mount-client ready: $(/usr/local/bin/mountos --version 2>&1 | head -1)"

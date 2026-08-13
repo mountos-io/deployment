@@ -6,9 +6,26 @@
 # which cannot be firewalled. Deploy MUST set PORT_RANGE on that service to exactly the range below
 # so appserv -> service SRPC is allowed by the security group.
 
+# Client-facing ports are INTERNET-FACING BY DESIGN and default to 0.0.0.0/0.
+# These are the surfaces real users reach from arbitrary networks:
+#   appserv 443    clients call /api/v1/discover/meta from anywhere
+#   dataserv 6464  clients mount from anywhere
+#   blockserv 9100 client byte-plane, same
+#   admin 443      operators work from different machines
+# Access control for all of them is at the APPLICATION layer, not the network:
+# Noise + per-volume access keys on the data path, Ed25519 JWT on the Admin
+# API, token auth on the dashboard. A source-IP allowlist adds no real
+# protection there — it only breaks legitimate clients, and on a dynamic
+# residential IP it silently locks the operator out (every request hangs with
+# no error, since the SG drops rather than rejects).
+#
+# Narrowing it is still supported for a private/single-tenant deployment that
+# genuinely fronts these with a VPN or fixed office range — set it explicitly
+# in that case. Do NOT narrow it on a deployment serving real clients.
 variable "client_cidr" {
-  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100) (required; the CIDR allowed to reach client-facing + hub ports — do not use 0.0.0.0/0 in production)."
+  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100) and the admin dashboard. Defaults to 0.0.0.0/0: these are internet-facing by design and authenticated at the application layer. Narrow only for a private deployment fronted by a VPN/fixed range."
   type        = string
+  default     = "0.0.0.0/0"
 }
 
 locals {
