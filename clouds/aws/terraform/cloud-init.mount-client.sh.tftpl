@@ -21,7 +21,24 @@ bash /tmp/mos-install.sh --pkg mountos-cli-linux
 %{ endif ~}
 
 # Mount point the operator's mount command targets by default.
+#
+# Owned by the LOGIN user, not root: the whole point of this box is running
+# filesystem tests against the mount, and a root-owned FUSE mount forces every
+# write through sudo — awkward to drive, and not how a real user runs the
+# client. An unprivileged mount also keeps created files owned by the tester,
+# so later inspection isn't muddied by root-owned artifacts.
+#
+# ssm-user is created by the SSM agent, which can start AFTER cloud-init, so
+# chown when it already exists and otherwise fall back to a sticky
+# world-writable mode (same semantics as /tmp) that any login user can mount
+# over. Without this the directory stays root:root and the first unprivileged
+# mount fails on permissions.
 install -d -m 0755 /mnt/mountos
+if id -u ssm-user >/dev/null 2>&1; then
+  chown ssm-user:ssm-user /mnt/mountos
+else
+  chmod 1777 /mnt/mountos
+fi
 
 # user_allow_other: the client may mount with -o allow_other so a non-root
 # shell can read the mount; harmless on a disposable single-purpose tester.
@@ -38,6 +55,9 @@ mountOS mount-test client (disposable).
     --discovery-url  "$MOUNTOS_DISCOVERY_URL" \
     --access-key-id  "$MOUNTOS_ACCESS_KEY_ID" \
     --secret-access-key "$MOUNTOS_SECRET_ACCESS_KEY"
+
+Mount UNPRIVILEGED (no sudo): /mnt/mountos is owned by the login user so test
+writes do not need root. sudo would also drop the exported MOUNTOS_* vars.
 
 Credentials are NOT stored on this box - export them for the session only.
 This instance lives in the DEFAULT VPC on purpose: it must reach dataserv over
