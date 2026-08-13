@@ -20,8 +20,15 @@ RAFT_UUID=$(blkid -s UUID -o value "$RAFT_DEV")
 grep -q "$RAFT_UUID" /etc/fstab || echo "UUID=$RAFT_UUID $RAFT_DIR xfs defaults,nofail 0 2" >>/etc/fstab
 mount -a
 
-# ADVERTISE_ADDR is the instance PUBLIC IPv4 (IMDSv2): dataserv is reached
-# directly by clients, no proxy. Requires a public subnet (auto-assigned IP).
+# ADVERTISE_ADDR is deliberately NOT set: dataserv auto-detects via IMDS,
+# which yields BOTH public-ipv4 (reached directly by external clients, no
+# proxy — hence the public-subnet requirement) and local-ipv4 (used for
+# raft peer and hub<->region dials, which must stay inside the VPC).
+# Setting ADVERTISE_ADDR forces discovery's explicit-address mode, which
+# mirrors the one given address into both roles — so pinning it to the
+# public IP would silently make peers dial the public address and hit the
+# same-VPC hairpin limitation that private addressing exists to avoid.
+# The probe below only sanity-checks that a public IP exists at all.
 TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
 PUB_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" \
@@ -74,7 +81,9 @@ REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 METAENGINE_ARENA_SIZE=${arena_size}
 RAFT_DATA_DIR=/mnt/raft
-ADVERTISE_ADDR=$PUB_IP
+%{ if dataserv_db_max_open_conns != "" ~}
+DB_MAX_OPEN_CONNS=${dataserv_db_max_open_conns}
+%{ endif ~}
 EOF
 chmod 0600 /etc/mountos/dataserv.env
 
@@ -143,6 +152,22 @@ EnvironmentFile=/etc/mountos/dataserv.env
 %{ if vault_provider == "hashicorp" ~}
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/${name_root}/region/vault-ca%{ else }-%{ endif } /${name_root}/region/vault-secret-id ${region} /etc/mountos/dataserv.secret.env
+%{ endif ~}
+# gcserv shares dataserv.env verbatim (co-located, same env file) — neither
+# sets PORT explicitly, so both default to 8080 for their own HTTP (health/
+# metrics) server and gcserv's own service crash-loops on bind: address
+# already in use. Override after EnvironmentFile so these win. RPC_PORT is
+# pinned explicitly (not left to derive from the new PORT) because it
+# already defaults to 8081 = PORT(8080)+1, matching security-groups.tf's
+# gcserv_srpc_from_appserv rule — moving PORT alone would silently shift it.
+Environment=PORT=8090
+Environment=RPC_PORT=8081
+%{ if gcserv_db_max_open_conns != "" ~}
+# gcserv holds its OWN pool against the regional DB, separate from the
+# co-located dataserv's. Set here rather than in the shared env file so the
+# two can differ: background GC needs far fewer connections than the hot
+# metadata path. Environment= wins over EnvironmentFile.
+Environment=DB_MAX_OPEN_CONNS=${gcserv_db_max_open_conns}
 %{ endif ~}
 ExecStart=/usr/local/bin/gcserv
 Restart=always

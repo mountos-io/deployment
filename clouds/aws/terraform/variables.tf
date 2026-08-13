@@ -42,6 +42,17 @@ variable "appserv_instance_type" {
   default     = "m7g.large"
 }
 
+# See region-variables.tf's dataserv/gcserv equivalents for the full rationale
+# and the DIALECT-SENSITIVE warning (a distributed engine wants MORE, not less,
+# so pinning a single-primary value here would cap it). Empty = let the binary
+# size its own pool. Note appserv_count defaults to 2, so this value is held
+# TWICE against the admin DB in a default deployment.
+variable "appserv_db_max_open_conns" {
+  type        = string
+  description = "DB_MAX_OPEN_CONNS for appserv against the admin DB. Empty = let the binary size its own pool (min(max(8*vCPU,50),200), x4 if distributed)."
+  default     = ""
+}
+
 variable "admin_db_mode" {
   type        = string
   description = "Admin DB provisioning mode: provision-rds | byo."

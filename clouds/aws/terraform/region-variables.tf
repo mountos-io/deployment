@@ -25,6 +25,43 @@ variable "arena_size" {
   default     = "1GB"
 }
 
+# DB_MAX_OPEN_CONNS overrides for the co-located dataserv/gcserv pair. Empty
+# (default) leaves them unset so the binary sizes its own pool — do NOT set
+# these deployment-wide without measuring: the code's default is
+# min(max(8*vCPU, 50), 200), which is right for a large node.
+#
+# DIALECT-SENSITIVE — these are single-primary (PostgreSQL/MySQL) numbers.
+# A DISTRIBUTED engine (CockroachDB, YugabyteDB, TiDB) fronts a cluster rather
+# than one primary: connections spread across nodes, idle ones cost far less,
+# and the binary deliberately scales its own baseline 4x for that case
+# (distributedConnScale in internal/db/connection.go). Pinning a
+# single-primary value here would CAP a distributed deployment well below what
+# it wants. Leave empty unless you know the target engine is a single primary
+# and you have measured it.
+#
+# They matter on SMALL nodes, where that formula's 50-connection FLOOR does all
+# the work: a 2-vCPU box computes 8*2=16 and gets floored to 50, the same pool
+# a 6-vCPU box would get. dataserv and gcserv each hold their OWN pool against
+# the same regional DB, so a 3-node region is 6 pools; add appserv's pool
+# against the shared admin DB and a db.t4g.medium (max_connections=400, an
+# AWS memory-derived default, not our setting) is at ~90% before real load.
+#
+# Splitting them (rather than one shared value) lets the hot metadata path keep
+# the larger share while background GC takes less. Both are applied per-service
+# even though the two share one env file — gcserv's is a systemd Environment=
+# override, which wins over EnvironmentFile.
+variable "dataserv_db_max_open_conns" {
+  type        = string
+  description = "DB_MAX_OPEN_CONNS for dataserv. Empty = let the binary size its own pool (min(max(8*vCPU,50),200))."
+  default     = ""
+}
+
+variable "gcserv_db_max_open_conns" {
+  type        = string
+  description = "DB_MAX_OPEN_CONNS for co-located gcserv. Empty = let the binary size its own pool. Values below DB_POOL_MIN_CONNS (2) are silently auto-upgraded by warmPoolConnections."
+  default     = ""
+}
+
 variable "raft_ebs_gb" {
   type        = number
   description = "Raft data dir EBS size (GiB) at /mnt/raft. Ephemeral per instance (delete_on_termination); quorum re-syncs on replacement."

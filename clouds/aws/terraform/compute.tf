@@ -28,6 +28,8 @@ resource "aws_launch_template" "appserv" {
     resource_prefix      = var.resource_prefix
     mos_version          = var.mos_version
     mos_installer_sha256 = var.mos_installer_sha256
+
+    appserv_db_max_open_conns = var.appserv_db_max_open_conns
   }))
 
   tag_specifications {

@@ -89,6 +89,9 @@ resource "aws_launch_template" "dataserv" {
     mos_version          = var.mos_version
     mos_installer_sha256 = var.mos_installer_sha256
     gcserv_colocated     = var.gcserv_colocated
+
+    dataserv_db_max_open_conns = var.dataserv_db_max_open_conns
+    gcserv_db_max_open_conns   = var.gcserv_db_max_open_conns
   }))
 
   tag_specifications {

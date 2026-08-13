@@ -139,6 +139,21 @@ resource "aws_vpc_security_group_ingress_rule" "dataserv_raft_self" {
   ip_protocol                  = "tcp"
   description                  = "raft peers (quorum), Noise"
 }
+# The raft JOIN handshake is separate from the raft data plane above: a joining
+# node dials an existing peer's SRPC/RPC port (6466), not the raft port (6465),
+# to ask for admission. Without this, a fresh node self-bootstraps alone and
+# every other node retries "no peer accepted join request" forever — a
+# permanent single-node quorum. Self-referential like the 6465 rule, so it
+# holds in both shared and dedicated region-VPC modes (same SG either way);
+# the appserv-sourced 6466 rule below is a different source, not a substitute.
+resource "aws_vpc_security_group_ingress_rule" "dataserv_rpc_self" {
+  security_group_id            = aws_security_group.dataserv.id
+  referenced_security_group_id = aws_security_group.dataserv.id
+  from_port                    = 6466
+  to_port                      = 6466
+  ip_protocol                  = "tcp"
+  description                  = "raft join handshake between dataserv peers"
+}
 resource "aws_vpc_security_group_ingress_rule" "dataserv_srpc_from_appserv" {
   count                        = local.region_dedicated_vpc ? 0 : 1
   security_group_id            = aws_security_group.dataserv.id

@@ -49,6 +49,8 @@ resource "aws_instance" "appserv_direct" {
     mos_version          = var.mos_version
     mos_installer_sha256 = var.mos_installer_sha256
     hub_domain           = var.hub_domain
+
+    appserv_db_max_open_conns = var.appserv_db_max_open_conns
   }))
 
   # SSM param must exist before instances launch and fetch the secret_id.

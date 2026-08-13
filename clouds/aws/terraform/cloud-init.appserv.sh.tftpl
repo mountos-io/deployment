@@ -62,6 +62,9 @@ HTTPS_PORT=8443
 TLS_CERT_FILE=/etc/mountos/appserv-cert.pem
 TLS_KEY_FILE=/etc/mountos/appserv-key.pem
 ADVERTISE_ADDR=$PRIV_IP
+%{ if appserv_db_max_open_conns != "" ~}
+DB_MAX_OPEN_CONNS=${appserv_db_max_open_conns}
+%{ endif ~}
 EOF
 chmod 0600 /etc/mountos/appserv.env
 
@@ -92,7 +95,11 @@ EnvironmentFile=/etc/mountos/appserv.env
 EnvironmentFile=-/etc/mountos/appserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/${name_root}/hub/vault-ca%{ else }-%{ endif } /${name_root}/appserv/vault-secret-id ${region} /etc/mountos/appserv.secret.env
 %{ endif ~}
-ExecStartPre=/usr/local/bin/appserv db install
+# '-' prefix: db install is one-time schema setup against the shared admin DB.
+# Once installed (by this node's first boot, a replacement instance, or an HA
+# sibling), every later start hits "already installed" and exits non-zero —
+# without '-', that blocks ExecStart on every restart and upgrade thereafter.
+ExecStartPre=-/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
 Restart=always
 RestartSec=10
