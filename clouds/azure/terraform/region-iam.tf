@@ -89,3 +89,28 @@ resource "azurerm_role_assignment" "blockserv_secretstore" {
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.blockserv[0].principal_id
 }
+
+# Azure ONLY: dataserv must read its own instance-level public IP from ARM at
+# boot, because no metadata path exposes it.
+#
+# The instance-metadata publicIpAddress leaf only ever served BASIC SKU public
+# IPs, and Basic SKU reached end of life in September 2025, so it is empty on
+# every current deployment. The Load Balancer Metadata API does report an
+# instance's own address, but returns 404 unless the VM sits behind a standard
+# load balancer, and dataserv deliberately has none: clients are handed
+# per-node addresses by discovery and dial the node that owns their data, so a
+# load balancer in front of it would defeat owner routing. The addresses come
+# from a public IP prefix, so they are not known at apply time either.
+#
+# Reader on the resource group is the narrowest built-in role that lets the
+# instance resolve its own NIC and public IP. It grants no write and no data
+# access. The token is issued by IMDS against this user-assigned identity, so
+# no credential is stored on the instance.
+#
+# AWS and GCP need none of this: both serve the instance's public IP straight
+# from their metadata service.
+resource "azurerm_role_assignment" "dataserv_self_reader" {
+  scope                = azurerm_resource_group.main.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.dataserv.principal_id
+}

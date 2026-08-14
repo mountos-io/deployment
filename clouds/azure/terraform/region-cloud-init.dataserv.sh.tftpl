@@ -25,21 +25,55 @@ RAFT_UUID=$(blkid -s UUID -o value "$RAFT_DEV")
 grep -q "$RAFT_UUID" /etc/fstab || echo "UUID=$RAFT_UUID $RAFT_DIR xfs defaults,nofail 0 2" >>/etc/fstab
 mount -a
 
-# ADVERTISE_ADDR is deliberately NOT set: dataserv auto-detects via IMDS, which
-# yields BOTH the public IP (clients reach dataserv directly, no proxy — hence
-# the Public IP on the NIC) and the private IP (raft peer and hub<->region
-# dials, which must stay inside the VNet). Setting ADVERTISE_ADDR forces
-# discovery's explicit-address mode, which mirrors the ONE given address into
-# both roles — pinning it to the public IP makes peers dial a public address
-# from inside the same VNet, which Azure does not reliably route back
-# (hairpin), and the failure is a silent timeout rather than an error.
-# The probe below only sanity-checks that a public IP exists at all.
+# ADVERTISE_ADDR is deliberately NOT set: it forces discovery's
+# explicit-address mode, which mirrors the ONE given address into BOTH the
+# public and private roles. Pinning it to the public IP makes peers dial a
+# public address from inside the same VNet, which Azure does not reliably route
+# back (hairpin), and the failure is a silent timeout rather than an error.
+# The private IP is auto-detected from IMDS, which serves it correctly.
+#
+# The PUBLIC half, however, cannot be auto-detected on Azure, so it is resolved
+# here and handed over as PUBLIC_ADVERTISE_ADDR, which sets ONLY the public role
+# and leaves the private one to IMDS:
+#   - the instance-metadata publicIpAddress leaf only ever served BASIC SKU
+#     public IPs, and Basic SKU reached end of life in September 2025, so on any
+#     current deployment it is empty;
+#   - the addresses come from a public IP prefix, so they are not known at apply
+#     time and cannot be templated in the way blockserv's static IP is.
+# Two sources are tried, cheapest first. AWS and GCP need neither.
 meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
-# '|| true' is load-bearing: IMDS can be briefly unavailable during early boot,
-# and curl -f then exits non-zero, which under 'set -e' kills the script before
-# the diagnostic below can name the real cause.
-PUB_IP="$(meta 'instance?api-version=2021-02-01' 2>/dev/null | jq -r '.network.interface[0].ipv4.ipAddress[0].publicIpAddress // empty' || true)"
-[ -n "$PUB_IP" ] || { echo "IMDS returned empty public IP (is this instance's NIC configured with a Public IP?)" >&2; exit 1; }
+
+# Source 1: the Load Balancer Metadata API. It reports what Azure calls the
+# INSTANCE LEVEL address, meaning this VM's own public IP rather than a load
+# balancer frontend. Azure's troubleshooting page says it 404s when the VM
+# "isn't associated with a load balancer", but a first-hand report shows it
+# answering 200 with the address populated for a VM with a directly attached
+# public IP and no load balancer. It costs one link-local request, so it is
+# worth trying before reaching for ARM. A failure here is expected, not a fault,
+# and it is NOT retried: Azure returns 404 both for "no load balancer" and for
+# "the API is still being enabled", so a 404 proves nothing either way. ARM
+# below is authoritative, so falling straight through to it beats guessing.
+PUB_IP="$(meta 'loadbalancer?api-version=2020-10-01' 2>/dev/null | jq -r '.loadbalancer.publicIpAddresses[0].frontendIpAddress // empty' || true)"
+
+# Source 2: ARM. Authoritative, and the fallback when source 1 is unavailable.
+# The token comes from IMDS against the VM's user-assigned identity, so nothing
+# is stored on the instance; region-iam.tf grants the matching Reader role.
+if [ -z "$PUB_IP" ]; then
+  for _ in $(seq 1 30); do
+    TOKEN="$(meta "identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F&client_id=${identity_client_id}" 2>/dev/null | jq -r '.access_token // empty' || true)"
+    RID="$(meta 'instance/compute?api-version=2021-02-01' 2>/dev/null | jq -r '.resourceId // empty' || true)"
+    if [ -n "$TOKEN" ] && [ -n "$RID" ]; then
+      # The instance's own NIC, expanded so the public IP address object comes
+      # back inline rather than as a bare reference needing a second call.
+      PUB_IP="$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+        "https://management.azure.com$${RID}/networkInterfaces?api-version=2022-11-01&\$expand=ipConfigurations/publicIPAddress" \
+        2>/dev/null | jq -r '[.value[].properties.ipConfigurations[].properties.publicIPAddress.properties.ipAddress // empty] | map(select(. != "")) | first // empty' || true)"
+      [ -n "$PUB_IP" ] && break
+    fi
+    sleep 2
+  done
+fi
+[ -n "$PUB_IP" ] || { echo "could not resolve this instance's public IP from either the load balancer metadata API or ARM after 60s (is the dataserv identity granted Reader on the resource group, and does the scale set assign instance-level public IPs?)" >&2; exit 1; }
 
 install -d -m 0755 /etc/mountos
 
@@ -98,6 +132,10 @@ REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 METAENGINE_ARENA_SIZE=${arena_size}
 RAFT_DATA_DIR=/mnt/raft
+# Sets ONLY the public role. The private address still comes from IMDS, so raft
+# peers and hub<->region dials keep using it. Do NOT replace this with
+# ADVERTISE_ADDR, which would collapse both roles onto the public address.
+PUBLIC_ADVERTISE_ADDR=$PUB_IP
 %{ if dataserv_db_max_open_conns != "" ~}
 DB_MAX_OPEN_CONNS=${dataserv_db_max_open_conns}
 %{ endif ~}
