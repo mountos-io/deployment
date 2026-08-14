@@ -28,9 +28,27 @@ grep -q "$CACHE_UUID" /etc/fstab || \
   echo "UUID=$CACHE_UUID $CACHE_DIR xfs rw,async,noatime,nodev,noexec,nosuid,nofail 0 2" >>/etc/fstab
 mount -a
 
-# ADVERTISE_ADDR is the member's stable static Public IP (terraform-known,
-# passed in directly — no IMDS query — since blockserv is reached directly by
-# clients).
+# ADVERTISE_ADDR is deliberately NOT set: blockserv auto-detects via IMDS,
+# which yields BOTH the public IP (clients reach the byte plane directly) and
+# the private IP (HA peer replication on 9101 and appserv<->blockserv SRPC,
+# which must stay inside the VNet). Setting ADVERTISE_ADDR forces discovery's
+# explicit-address mode, which mirrors the ONE given address into both roles —
+# pinning it to the static Public IP makes same-VNet peers dial a public
+# address, which Azure does not reliably route back (hairpin), silently
+# breaking peer replication.
+#
+# The member's Public IP is still terraform-known, so rather than trusting IMDS
+# blindly we WAIT for the association to land: a freshly booted VM can briefly
+# report a different/absent public IP, and advertising that would publish a
+# wrong, short-lived client address.
+meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
+for _ in $(seq 1 60); do
+  PUB_IP="$(meta 'instance?api-version=2021-02-01' | jq -r '.network.interface[0].ipv4.ipAddress[0].publicIpAddress // empty' || true)"
+  [ "$PUB_IP" = "${advertise_addr}" ] && break
+  sleep 2
+done
+[ "$PUB_IP" = "${advertise_addr}" ] || { echo "static Public IP ${advertise_addr} never associated (IMDS reports '$PUB_IP'); refusing to advertise a transient address" >&2; exit 1; }
+
 install -d -m 0755 /etc/mountos
 
 %{ if vault_provider == "hashicorp" ~}
@@ -79,6 +97,11 @@ VAULT_AZURE_URL=${key_vault_uri}
 # does not default to a user-assigned identity).
 AZURE_CLIENT_ID=${identity_client_id}
 %{ endif ~}
+# Provider-agnostic, so it stays OUTSIDE the vault_provider branch. Secret
+# names are mountos-<prefix>/..., so omitting this makes the service read
+# unprefixed paths that do not exist. Harmless while the prefix is empty,
+# which is what delays the failure until a prefix is first set.
+VAULT_RESOURCE_PREFIX=${resource_prefix}
 REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 BLOCK_VOLUME_ID=${block_volume_id}
@@ -86,12 +109,11 @@ BLOCK_PORT=9100
 PORT_RANGE=9500-9600
 STORAGE_MOUNT_ROOT_PATH=$CACHE_DIR
 DELETE_MODE=${delete_mode}
-ADVERTISE_ADDR=${advertise_addr}
 EOF
 chmod 0600 /etc/mountos/blockserv.env
 
 # Install blockserv. No db (data-plane node). No license file (hublicense model).
-curl -fsSL https://n.sh -o /tmp/mos-install.sh
+curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-blockserv --version ${mos_version}

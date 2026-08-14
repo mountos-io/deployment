@@ -122,3 +122,42 @@ locals {
   # from region_db_host + the mountos-region-db-password secret (see
   # region-outputs.tf).
 }
+
+# DB_MAX_OPEN_CONNS overrides for the co-located dataserv/gcserv pair. Empty
+# (default) leaves them unset so the binary sizes its own pool — do NOT set
+# these deployment-wide without measuring: the code's default is
+# min(max(8*vCPU, 50), 200), which is right for a large node.
+#
+# DIALECT-SENSITIVE — these are single-primary (PostgreSQL/MySQL) numbers.
+# A DISTRIBUTED engine (CockroachDB, YugabyteDB, TiDB) fronts a cluster rather
+# than one primary: connections spread across nodes, idle ones cost far less,
+# and the binary deliberately scales its own baseline 4x for that case. Pinning
+# a single-primary value here would CAP a distributed deployment well below
+# what it wants. Leave empty unless you know the target engine is a single
+# primary and you have measured it.
+#
+# They matter on SMALL nodes, where that formula's 50-connection FLOOR does all
+# the work: a 2-vCPU box computes 8*2=16 and gets floored to 50, the same pool
+# a 6-vCPU box would get. dataserv and gcserv each hold their OWN pool against
+# the same regional DB, so a 3-node region is 6 pools; add appserv's pool
+# against the shared admin DB and a small managed instance is near its
+# max_connections ceiling before real load.
+#
+# Splitting them (rather than one shared value) lets the hot metadata path keep
+# the larger share while background GC takes less. gcserv's value is written to
+# a SECOND env file, gcserv.env, listed after dataserv.env in its unit. It is
+# deliberately NOT a systemd Environment= line: systemd.exec specifies that
+# EnvironmentFile= overrides Environment= regardless of line order, so an
+# Environment= override of a key dataserv.env also sets is silently discarded.
+# Later EnvironmentFile= entries DO override earlier ones.
+variable "dataserv_db_max_open_conns" {
+  type        = string
+  description = "DB_MAX_OPEN_CONNS for dataserv. Empty = let the binary size its own pool (min(max(8*vCPU,50),200))."
+  default     = ""
+}
+
+variable "gcserv_db_max_open_conns" {
+  type        = string
+  description = "DB_MAX_OPEN_CONNS for co-located gcserv, written to gcserv.env which its unit reads after dataserv.env. Empty = gcserv INHERITS dataserv_db_max_open_conns through the shared env file, and only falls back to sizing its own pool when that is empty too. Values below DB_POOL_MIN_CONNS (2) are silently auto-upgraded by warmPoolConnections."
+  default     = ""
+}

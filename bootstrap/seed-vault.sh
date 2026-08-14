@@ -91,7 +91,9 @@ fi
 secrets="$here/secrets.local.json"
 if [[ ! -f "$secrets" ]]; then
   echo "==> generating fresh key material -> secrets.local.json (KEEP admin_private safe + offline)"
-  # Prefer the prebuilt helper (n.sh --pkg mos-keygen); fall back to source for
+  # Prefer the prebuilt helper (mountos.sh/install --pkg mos-keygen) when it exists; fall
+  # back to source. NOTE: mos-keygen is NOT published yet, so the source path is the one
+  # that actually runs today. Do not remove it. Original note follows:
   # in-repo dev. Write-to-temp + mv: a keygen crash must not leave a truncated
   # file that a re-run would treat as complete.
   if command -v mos-keygen >/dev/null 2>&1; then

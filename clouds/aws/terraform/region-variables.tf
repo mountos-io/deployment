@@ -47,9 +47,12 @@ variable "arena_size" {
 # AWS memory-derived default, not our setting) is at ~90% before real load.
 #
 # Splitting them (rather than one shared value) lets the hot metadata path keep
-# the larger share while background GC takes less. Both are applied per-service
-# even though the two share one env file — gcserv's is a systemd Environment=
-# override, which wins over EnvironmentFile.
+# the larger share while background GC takes less. gcserv's value is written to
+# a SECOND env file, gcserv.env, listed after dataserv.env in its unit. It is
+# deliberately NOT a systemd Environment= line: systemd.exec specifies that
+# EnvironmentFile= overrides Environment= regardless of line order, so an
+# Environment= override of a key dataserv.env also sets is silently discarded.
+# Later EnvironmentFile= entries DO override earlier ones.
 variable "dataserv_db_max_open_conns" {
   type        = string
   description = "DB_MAX_OPEN_CONNS for dataserv. Empty = let the binary size its own pool (min(max(8*vCPU,50),200))."
@@ -58,7 +61,7 @@ variable "dataserv_db_max_open_conns" {
 
 variable "gcserv_db_max_open_conns" {
   type        = string
-  description = "DB_MAX_OPEN_CONNS for co-located gcserv. Empty = let the binary size its own pool. Values below DB_POOL_MIN_CONNS (2) are silently auto-upgraded by warmPoolConnections."
+  description = "DB_MAX_OPEN_CONNS for co-located gcserv, written to gcserv.env which its unit reads after dataserv.env. Empty = gcserv INHERITS dataserv_db_max_open_conns through the shared env file, and only falls back to sizing its own pool when that is empty too. Values below DB_POOL_MIN_CONNS (2) are silently auto-upgraded by warmPoolConnections."
   default     = ""
 }
 

@@ -6,7 +6,7 @@
 // appserv also has an equivalent `appserv keygen` subcommand (identical output
 // shape) for use on an already-provisioned Linux node. This standalone tool
 // stays the primary path for the deploy package's seed scripts: clients only
-// ever get the published n.sh appserv binary (linux/{amd64,arm64} only, per
+// ever get the published mountos.sh/install appserv binary (linux/{amd64,arm64} only, per
 // the production release matrix), not the mountos-servers source needed to
 // build appserv for their own workstation — this tiny zero-dependency binary
 // is what actually runs cross-platform for them.

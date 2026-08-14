@@ -56,16 +56,18 @@ resource "azurerm_linux_virtual_machine_scale_set" "appserv" {
   }
 
   custom_data = base64encode(templatefile("${path.module}/cloud-init.appserv.sh.tftpl", {
-    vault_provider           = var.vault_provider
-    vault_addr               = var.vault_addr
-    vault_role_id            = var.vault_role_id
-    vault_ca_source          = local.hub_vault_ca_source
-    key_vault_uri            = azurerm_key_vault.hub.vault_uri
-    hub_vault_ca_secret      = "${local.name_root}-hub-vault-ca"
-    appserv_secret_id_secret = "${local.name_root}-appserv-vault-secret-id"
-    identity_client_id       = azurerm_user_assigned_identity.appserv.client_id
-    mos_version              = var.mos_version
-    mos_installer_sha256     = var.mos_installer_sha256
+    vault_provider            = var.vault_provider
+    vault_addr                = var.vault_addr
+    vault_role_id             = var.vault_role_id
+    vault_ca_source           = local.hub_vault_ca_source
+    key_vault_uri             = azurerm_key_vault.hub.vault_uri
+    hub_vault_ca_secret       = "${local.name_root}-hub-vault-ca"
+    appserv_secret_id_secret  = "${local.name_root}-appserv-vault-secret-id"
+    identity_client_id        = azurerm_user_assigned_identity.appserv.client_id
+    mos_version               = var.mos_version
+    mos_installer_sha256      = var.mos_installer_sha256
+    resource_prefix           = var.resource_prefix
+    appserv_db_max_open_conns = var.appserv_db_max_open_conns
   }))
 
   automatic_instance_repair {

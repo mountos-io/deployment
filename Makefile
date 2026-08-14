@@ -15,7 +15,7 @@ CLOUD := aws
 endif
 TF    := $(HERE)clouds/$(CLOUD)/terraform
 
-.PHONY: help interview validate plan apply bootstrap verify upgrade region-bootstrap
+.PHONY: help interview validate plan apply bootstrap verify upgrade region-bootstrap block-roll
 
 help:
 	@echo "mountOS init-hub (production):"
@@ -27,6 +27,7 @@ help:
 	@echo "  verify     read-only health gates against the running hub"
 	@echo "  upgrade    set MOS_VERSION in answers.env, then 'make apply' to roll the ASG (no data touched)"
 	@echo "  region-bootstrap  seed the region secret store (dataserv/gcserv/blockserv keys, unconditional) + fan out hub<->region verifiers"
+	@echo "  block-roll  roll blockserv members ONE AT A TIME so the active-active mesh keeps serving (plain apply replaces them all together)"
 	@echo ""
 	@echo "  CLOUD=$(CLOUD) (default aws). Substrate: clouds/$(CLOUD)/terraform"
 	@echo "  NO destroy target by design."
@@ -60,3 +61,11 @@ verify:
 
 upgrade:
 	@echo "set MOS_VERSION in answers.env (+ tfvars), then: make apply  # rolling ASG refresh"
+
+# blockserv members are per-member VMs, not an instance group, so nothing rolls
+# them for you. A plain apply replaces every changed member in the same run,
+# which takes the whole active-active mesh down at once. This walks them one at
+# a time instead. Read block-roll.sh's header for why terraform cannot express
+# this on its own.
+block-roll:
+	@CLOUD="$(CLOUD)" "$(HERE)block-roll.sh"

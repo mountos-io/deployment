@@ -190,7 +190,12 @@ resource "aws_vpc_security_group_ingress_rule" "dataserv_srpc_from_appserv_cidr"
   description       = "SRPC from HUB VPC (dedicated mode, vault refresh, volume ops)"
 }
 
-# ---------- gcserv ingress (standalone; co-located on dataserv needs none) ----------
+# ---------- gcserv ingress ----------
+# Applies to CO-LOCATED gcserv too: region-compute.tf attaches the gcserv SG to
+# the dataserv instances when gcserv_colocated, so port 8081 below is the port
+# the co-located unit must actually bind. That is why gcserv.env pins
+# RPC_PORT=8081 rather than letting it derive from the overridden PORT.
+# Removing that SG attachment breaks hub -> gcserv RPC.
 resource "aws_vpc_security_group_ingress_rule" "gcserv_srpc_from_appserv" {
   count                        = local.region_dedicated_vpc ? 0 : 1
   security_group_id            = aws_security_group.gcserv.id

@@ -17,8 +17,19 @@ dns_zone_name = ""
 
 hub_certificate_id = "" # set this OR dns_zone_name for the HTTPS proxy
 
-# CIDR allowed to reach client-facing ports. Required; scope to your network — do not use 0.0.0.0/0 in production.
-client_cidr = "203.0.113.0/24" # REPLACE with your operator/client CIDR
+# client_cidr is intentionally NOT set here: it defaults to 0.0.0.0/0.
+# Client-facing ports (client mount, client byte plane) are internet-facing BY
+# DESIGN and authenticated at the application layer (Noise + per-volume access
+# keys, signed JWT). Pinning them to one CIDR breaks real clients, and pinning
+# to an operator's dynamic IP silently locks the deployment out when the ISP
+# rotates it — packets are DROPPED, so every request just hangs with no error.
+# On GCP, narrowing this also creates a Cloud Armor policy on the appserv
+# backend service: client discovery on 443 arrives via the global HTTPS LB
+# proxy, which no VPC firewall rule can source-filter. Cloud Armor is a
+# chargeable product, so nothing is created while this stays at 0.0.0.0/0.
+# Uncomment ONLY for a private deployment genuinely fronted by a VPN or a fixed
+# office range:
+# client_cidr = "203.0.113.0/24"
 
 # Break-glass SSH via IAP TCP forwarding (source restricted to Google's fixed
 # 35.235.240.0/20 range). Off by default — no SSH path exists at all unless
@@ -68,7 +79,7 @@ vault_secret_id = ""
 # mountOS package version. Empty installs latest.
 mos_version = ""
 
-# sha256 of the https://n.sh installer script; when set, cloud-init verifies
+# sha256 of the https://mountos.sh/install installer script; when set, cloud-init verifies
 # the download before executing it. Strongly recommended for production.
 mos_installer_sha256 = ""
 

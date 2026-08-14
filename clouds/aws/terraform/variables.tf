@@ -149,7 +149,7 @@ variable "mos_version" {
 
 variable "mos_installer_sha256" {
   type        = string
-  description = "Optional sha256 of the n.sh installer script; when set, cloud-init verifies before executing."
+  description = "Optional sha256 of the mountos.sh/install installer script; when set, cloud-init verifies before executing."
   default     = ""
 }
 

@@ -8,7 +8,7 @@
 version: 0.88.0
 
 artifacts:
-  # Hub server binary, fetched on each instance via https://n.sh.
+  # Hub server binary, fetched on each instance via https://mountos.sh/install.
   appserv:
     pkg: mountos-appserv
     # REQUIRED build tags. `hublicense` switches the hub to DB-driven licensing:
@@ -54,7 +54,7 @@ clouds:
 
 # Distribution:
 #   source of truth  : the mountos-io/deployment git repo, tagged v<version>.
-#   published bundle : n.sh / R2 as `--pkg deploy --version <version>` (tarball).
+#   published bundle : mountos.sh/install / R2 as `--pkg deploy --version <version>` (tarball).
 #   AI deploy skill  : fetches the pinned bundle (tarball or repo tag), drives make.
 
 # Production-hardening register (updated after the production-readiness review).
@@ -94,7 +94,7 @@ production_hardening:
   - id: supply-chain-verify
     severity: high
     status: open-pipeline
-    note: "Verify MECHANISM wired: cloud-init downloads the n.sh installer to a file and sha256-verifies it when var.mos_installer_sha256 is set (warns otherwise). The actual digests/signatures must be published per-artifact by the release pipeline; cannot be fabricated here."
+    note: "Verify MECHANISM wired: cloud-init downloads the mountos.sh/install installer to a file and sha256-verifies it when var.mos_installer_sha256 is set (warns otherwise). The actual digests/signatures must be published per-artifact by the release pipeline; cannot be fabricated here."
   - id: vault-ha
     severity: high
     status: resolved

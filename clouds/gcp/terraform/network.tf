@@ -49,8 +49,9 @@ resource "google_compute_subnetwork" "private" {
   private_ip_google_access = true
 }
 
-# Cloud NAT for the private subnet's egress (n.sh installer, package fetches,
-# Vault/API calls out). Public-subnet instances use their own external IP.
+# Cloud NAT for the private subnet's egress (mountos.sh installer, package
+# fetches, Vault/API calls out). Public-subnet instances use their own
+# external IP.
 resource "google_compute_router" "nat" {
   name    = "${local.name_root}-nat-router"
   network = google_compute_network.main.id

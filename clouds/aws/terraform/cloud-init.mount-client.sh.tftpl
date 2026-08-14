@@ -40,6 +40,39 @@ else
   chmod 1777 /mnt/mountos
 fi
 
+# Credentials stub: correct variable names and 0600 perms pre-set, VALUES LEFT
+# EMPTY ON PURPOSE. The operator fills it in from their own local profile
+# inside an interactive session — never through SSM send-command, whose
+# parameters are recorded verbatim in command history and CloudTrail.
+#
+# Written to /etc/skel FIRST, then copied into an existing home. ssm-user is
+# normally created by the SSM agent when the FIRST session starts, which is
+# after cloud-init, so a home-directory-only write silently does nothing and
+# the MOTD then tells the operator to source a file that was never created.
+# /etc/skel is what the account creation copies from, so it covers that case.
+install -m 0600 /dev/null /etc/skel/.mountos_profile
+cat >/etc/skel/.mountos_profile <<'PROFILE'
+# mountOS volume credentials for this disposable mount tester.
+#
+# Fill in, then:  source ~/.mountos_profile && mountos mount /mnt/mountos
+# (mount-point is positional; -s is a switch that reads the secret from
+# stdin/prompt, so the secret never lands on argv where ps can read it.)
+#
+# Before pasting real values, keep them out of shell history:
+#     unset HISTFILE
+export MOUNTOS_DISCOVERY_URL=
+export MOUNTOS_ACCESS_KEY_ID=
+export MOUNTOS_SECRET_ACCESS_KEY=
+PROFILE
+chmod 0600 /etc/skel/.mountos_profile
+
+# Covers the other order too: if the agent already created ssm-user before this
+# ran, /etc/skel was never consulted for it, so seed the home copy directly.
+if id -u ssm-user >/dev/null 2>&1; then
+  install -d -m 0700 -o ssm-user -g ssm-user /home/ssm-user
+  install -m 0600 -o ssm-user -g ssm-user /etc/skel/.mountos_profile /home/ssm-user/.mountos_profile
+fi
+
 # user_allow_other: the client may mount with -o allow_other so a non-root
 # shell can read the mount; harmless on a disposable single-purpose tester.
 grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo user_allow_other >>/etc/fuse.conf
@@ -51,10 +84,14 @@ cat >/etc/motd <<'EOF'
 mountOS mount-test client (disposable).
 
   mountos --version
-  mountos mount -m /mnt/mountos \
-    --discovery-url  "$MOUNTOS_DISCOVERY_URL" \
-    --access-key-id  "$MOUNTOS_ACCESS_KEY_ID" \
-    --secret-access-key "$MOUNTOS_SECRET_ACCESS_KEY"
+
+  # mount-point is POSITIONAL (there is no -m). With MOUNTOS_DISCOVERY_URL,
+  # MOUNTOS_ACCESS_KEY_ID and MOUNTOS_SECRET_ACCESS_KEY exported:
+  mountos mount /mnt/mountos
+
+  # or pass the key id and feed the secret on stdin. -s is a SWITCH, not a
+  # value: the secret never goes on argv, where ps/history would expose it.
+  echo "<secret>" | mountos mount /mnt/mountos -a <access-key-id> -s
 
 Mount UNPRIVILEGED (no sudo): /mnt/mountos is owned by the login user so test
 writes do not need root. sudo would also drop the exported MOUNTOS_* vars.

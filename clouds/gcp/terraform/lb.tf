@@ -13,12 +13,53 @@ resource "google_compute_managed_ssl_certificate" "hub" {
   }
 }
 
+# Cloud Armor, created ONLY when client_cidr is narrowed. Client discovery on
+# 443 arrives through the global HTTPS LB, whose frontend is a Google-managed
+# proxy outside this VPC, so no firewall rule can source-filter it. Without this
+# policy an operator who sets client_cidr gets dataserv and blockserv restricted
+# while discovery stays open to the internet, which is the wrong direction for a
+# security control to fail in.
+#
+# Cloud Armor is a chargeable product, which is why this is opt-in rather than
+# always-on. The default (client_cidr = "0.0.0.0/0") creates nothing.
+resource "google_compute_security_policy" "appserv" {
+  count       = var.client_cidr == "0.0.0.0/0" ? 0 : 1
+  name        = "${local.name_root}-appserv"
+  description = "Restricts client discovery on 443 to client_cidr."
+
+  rule {
+    action   = "allow"
+    priority = 1000
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = [var.client_cidr]
+      }
+    }
+    description = "Allow client_cidr"
+  }
+
+  # Rule 2147483647 is the mandatory catch-all; it must exist and must be last.
+  rule {
+    action   = "deny(403)"
+    priority = 2147483647
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+    description = "Default deny"
+  }
+}
+
 resource "google_compute_backend_service" "appserv_http" {
   name                  = "${local.name_root}-appserv-http"
   protocol              = "HTTPS"
   port_name             = "https"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   health_checks         = [google_compute_health_check.appserv.id]
+  security_policy       = var.client_cidr == "0.0.0.0/0" ? null : google_compute_security_policy.appserv[0].id
 
   backend {
     group = google_compute_region_instance_group_manager.appserv.instance_group

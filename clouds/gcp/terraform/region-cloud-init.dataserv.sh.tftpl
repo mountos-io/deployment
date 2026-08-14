@@ -25,10 +25,20 @@ RAFT_UUID=$(blkid -s UUID -o value "$RAFT_DEV")
 grep -q "$RAFT_UUID" /etc/fstab || echo "UUID=$RAFT_UUID $RAFT_DIR xfs defaults,nofail 0 2" >>/etc/fstab
 mount -a
 
-# ADVERTISE_ADDR is the instance PUBLIC IPv4: dataserv is reached directly by
-# clients, no proxy. Requires the public subnet (external access_config).
+# ADVERTISE_ADDR is deliberately NOT set: dataserv auto-detects via the
+# metadata server, which yields BOTH the external IP (clients reach dataserv
+# directly, no proxy — hence the public-subnet requirement) and the internal
+# IP (raft peer and hub<->region dials, which must stay inside the VPC).
+# Setting ADVERTISE_ADDR forces discovery's explicit-address mode, which
+# mirrors the ONE given address into both roles — pinning it to the external
+# IP makes peers dial a public address from inside the same network, which GCP
+# does not reliably route back (hairpin), and the failure is a silent timeout.
+# The probe below only sanity-checks that an external IP exists at all.
 meta() { curl -fsSL -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
-PUB_IP="$(meta 'instance/network-interfaces/0/access-configs/0/external-ip')"
+# '|| true' is load-bearing: with no access_config the metadata leaf 404s, and
+# curl -f then exits 22, which under 'set -e' kills the script before the
+# diagnostic below can name the real cause.
+PUB_IP="$(meta 'instance/network-interfaces/0/access-configs/0/external-ip' || true)"
 [ -n "$PUB_IP" ] || { echo "metadata server returned empty public IP (is this instance in the public subnet with an access_config?)" >&2; exit 1; }
 
 install -d -m 0755 /etc/mountos
@@ -78,23 +88,32 @@ VAULT_CACERT=/etc/mountos/vault-ca.pem
 VAULT_PROVIDER=gcp
 VAULT_GCP_PROJECT_ID=${project_id}
 %{ endif ~}
+# Provider-agnostic, so it stays OUTSIDE the vault_provider branch. Secret
+# names are mountos-<prefix>/..., so omitting this makes the service read
+# unprefixed paths that do not exist. Harmless while the prefix is empty,
+# which is what delays the failure until a prefix is first set.
+VAULT_RESOURCE_PREFIX=${resource_prefix}
 REGION_CLUSTER_ID=${region_cluster_id}
 SERVICE_RPC_ADDR=${srpc_addr}
 METAENGINE_ARENA_SIZE=${arena_size}
 RAFT_DATA_DIR=/mnt/raft
-ADVERTISE_ADDR=$PUB_IP
+%{ if dataserv_db_max_open_conns != "" ~}
+DB_MAX_OPEN_CONNS=${dataserv_db_max_open_conns}
+%{ endif ~}
 EOF
 chmod 0600 /etc/mountos/dataserv.env
 
 # Install dataserv (+ gcserv when co-located). No license file: license arrives
 # from the hub over the heartbeat (hublicense model).
-curl -fsSL https://n.sh -o /tmp/mos-install.sh
+curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if gcserv_colocated ~}
 %{ if mos_version != "" ~}
-bash /tmp/mos-install.sh --pkg mountos-dataserv --pkg mountos-gcserv --version ${mos_version}
+bash /tmp/mos-install.sh --pkg mountos-dataserv --version ${mos_version}
+bash /tmp/mos-install.sh --pkg mountos-gcserv --version ${mos_version}
 %{ else ~}
-bash /tmp/mos-install.sh --pkg mountos-dataserv --pkg mountos-gcserv
+bash /tmp/mos-install.sh --pkg mountos-dataserv
+bash /tmp/mos-install.sh --pkg mountos-gcserv
 %{ endif ~}
 %{ else ~}
 %{ if mos_version != "" ~}
@@ -122,7 +141,12 @@ EnvironmentFile=/etc/mountos/dataserv.env
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} %{ if vault_ca_source == "secret" }${region_vault_ca_secret}%{ else }-%{ endif } ${region_secret_id_secret} /etc/mountos/dataserv.secret.env
 %{ endif ~}
-ExecStartPre=/usr/local/bin/dataserv db install
+# '-' prefix: db install is one-time schema setup against the SHARED regional
+# DB. The first node in the quorum installs it; every other node (and every
+# restart of any node) exits non-zero with "already installed". Without '-'
+# that blocks ExecStart forever and the MIG's auto-healing recreates the
+# instance in an endless loop.
+ExecStartPre=-/usr/local/bin/dataserv db install
 ExecStart=/usr/local/bin/dataserv
 Restart=always
 RestartSec=10
@@ -133,6 +157,27 @@ EOF
 
 %{ if gcserv_colocated ~}
 # Co-located gcserv: second unit, same bootstrap env. No db install (dataserv owns the schema).
+# gcserv-specific overrides, read AFTER dataserv.env so they win. gcserv and
+# the co-located dataserv share every other value.
+#
+# PORT: both binaries default to 8080 for their own HTTP (health/metrics)
+# server, so without this gcserv crash-loops on "bind: address already in
+# use" while the node still looks healthy. RPC_PORT is pinned explicitly
+# rather than left to derive from the new PORT (it defaults to PORT+1), because
+# the firewall rule for gcserv SRPC hard-codes 8081; moving PORT alone would
+# silently shift the RPC port outside that rule.
+cat >/etc/mountos/gcserv.env <<EOF
+PORT=8090
+RPC_PORT=8081
+%{ if gcserv_db_max_open_conns != "" ~}
+# gcserv holds its OWN pool against the regional DB, separate from the
+# co-located dataserv's: background GC needs far fewer connections than the hot
+# metadata path.
+DB_MAX_OPEN_CONNS=${gcserv_db_max_open_conns}
+%{ endif ~}
+EOF
+chmod 0600 /etc/mountos/gcserv.env
+
 cat >/etc/systemd/system/gcserv.service <<EOF
 [Unit]
 Description=mountOS gcserv
@@ -146,6 +191,13 @@ EnvironmentFile=/etc/mountos/dataserv.env
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} %{ if vault_ca_source == "secret" }${region_vault_ca_secret}%{ else }-%{ endif } ${region_secret_id_secret} /etc/mountos/dataserv.secret.env
 %{ endif ~}
+# gcserv.env is listed AFTER dataserv.env and carries every gcserv-specific
+# override. Do NOT use Environment= for this: systemd.exec specifies that
+# EnvironmentFile= settings override Environment= settings regardless of the
+# order the lines appear in, so an Environment= override of any key that
+# dataserv.env also defines is silently discarded. Later EnvironmentFile=
+# entries DO override earlier ones, which is the mechanism that works here.
+EnvironmentFile=/etc/mountos/gcserv.env
 ExecStart=/usr/local/bin/gcserv
 Restart=always
 RestartSec=10

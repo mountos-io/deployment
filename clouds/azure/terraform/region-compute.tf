@@ -79,26 +79,49 @@ resource "azurerm_linux_virtual_machine_scale_set" "dataserv" {
   }
 
   custom_data = base64encode(templatefile("${path.module}/region-cloud-init.dataserv.sh.tftpl", {
-    vault_provider          = var.region_vault_provider
-    vault_addr              = var.region_vault_addr
-    vault_role_id           = var.region_vault_role_id
-    vault_ca_source         = local.region_vault_ca_source
-    key_vault_uri           = azurerm_key_vault.region.vault_uri
-    region_vault_ca_secret  = "${local.name_root}-region-vault-ca"
-    region_secret_id_secret = "${local.name_root}-region-vault-secret-id"
-    identity_client_id      = azurerm_user_assigned_identity.dataserv.client_id
-    region_cluster_id       = var.region_cluster_id
-    srpc_addr               = "${azurerm_lb.appserv_srpc.frontend_ip_configuration[0].private_ip_address}:9443"
-    arena_size              = var.arena_size
-    mos_version             = var.mos_version
-    mos_installer_sha256    = var.mos_installer_sha256
-    gcserv_colocated        = var.gcserv_colocated
+    vault_provider             = var.region_vault_provider
+    vault_addr                 = var.region_vault_addr
+    vault_role_id              = var.region_vault_role_id
+    vault_ca_source            = local.region_vault_ca_source
+    key_vault_uri              = azurerm_key_vault.region.vault_uri
+    region_vault_ca_secret     = "${local.name_root}-region-vault-ca"
+    region_secret_id_secret    = "${local.name_root}-region-vault-secret-id"
+    identity_client_id         = azurerm_user_assigned_identity.dataserv.client_id
+    region_cluster_id          = var.region_cluster_id
+    srpc_addr                  = "${azurerm_lb.appserv_srpc.frontend_ip_configuration[0].private_ip_address}:9443"
+    arena_size                 = var.arena_size
+    mos_version                = var.mos_version
+    mos_installer_sha256       = var.mos_installer_sha256
+    resource_prefix            = var.resource_prefix
+    dataserv_db_max_open_conns = var.dataserv_db_max_open_conns
+    gcserv_db_max_open_conns   = var.gcserv_db_max_open_conns
+    gcserv_colocated           = var.gcserv_colocated
   }))
 
-  # No health_probe_id: dataserv is not behind an LB. automatic_instance_repair
-  # falls back to VM provisioning-state only (same as AWS's EC2-type health
-  # check) - raft quorum handles peer-loss/replacement at the app layer, not
-  # infra-triggered repair.
+  # Application Health extension, NOT health_probe_id: dataserv is reached on
+  # per-instance public IPs and sits behind no load balancer, so there is no
+  # probe to point at. Azure requires a health signal from one source or the
+  # other for BOTH upgrade_mode = "Rolling" and automatic_instance_repair; with
+  # neither, the scale set is rejected at create time (terraform validate does
+  # not catch it, the API does). The extension is that signal.
+  #
+  # It reports the same /health the service already serves on its HTTP port,
+  # which for dataserv is the default PORT 8080. Co-located gcserv is moved to
+  # 8090 by gcserv.env precisely so it does not take this port. Neither port is
+  # opened in the NSG; the probe is instance-local.
+  extension {
+    name                       = "HealthExtension"
+    publisher                  = "Microsoft.ManagedServices"
+    type                       = "ApplicationHealthLinux"
+    type_handler_version       = "1.0"
+    auto_upgrade_minor_version = true
+    settings = jsonencode({
+      protocol    = "http"
+      port        = 8080
+      requestPath = "/health"
+    })
+  }
+
   automatic_instance_repair {
     enabled      = true
     grace_period = "PT10M"

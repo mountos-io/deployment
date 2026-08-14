@@ -64,16 +64,24 @@ VAULT_CACERT=/etc/mountos/vault-ca.pem
 VAULT_PROVIDER=gcp
 VAULT_GCP_PROJECT_ID=${project_id}
 %{ endif ~}
+# Provider-agnostic, so it stays OUTSIDE the vault_provider branch. Secret
+# names are mountos-<prefix>/..., so omitting this makes the service read
+# unprefixed paths that do not exist. Harmless while the prefix is empty,
+# which is what delays the failure until a prefix is first set.
+VAULT_RESOURCE_PREFIX=${resource_prefix}
 PORT=8080
 HTTPS_PORT=8443
 TLS_CERT_FILE=/etc/mountos/appserv-cert.pem
 TLS_KEY_FILE=/etc/mountos/appserv-key.pem
 ADVERTISE_ADDR=$PRIV_IP
+%{ if appserv_db_max_open_conns != "" ~}
+DB_MAX_OPEN_CONNS=${appserv_db_max_open_conns}
+%{ endif ~}
 EOF
 chmod 0600 /etc/mountos/appserv.env
 
 # Install appserv (built-in free 5 TiB; no license required).
-curl -fsSL https://n.sh -o /tmp/mos-install.sh
+curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-appserv --version ${mos_version}
@@ -99,7 +107,13 @@ EnvironmentFile=/etc/mountos/appserv.env
 EnvironmentFile=-/etc/mountos/appserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} %{ if vault_ca_source == "secret" }${hub_vault_ca_secret}%{ else }-%{ endif } ${appserv_secret_id_secret} /etc/mountos/appserv.secret.env
 %{ endif ~}
-ExecStartPre=/usr/local/bin/appserv db install
+# '-' prefix: db install is one-time schema setup against the SHARED admin DB.
+# Once installed (by this node's first boot, a replacement, or another instance
+# in the fleet) every later start exits non-zero with "already installed".
+# Without '-' that blocks ExecStart forever, and the MIG's auto-healing then
+# recreates the instance in an endless loop. appserv_count > 1 by default, so
+# even the FIRST boot has a loser node that hits this immediately.
+ExecStartPre=-/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
 Restart=always
 RestartSec=10

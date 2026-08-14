@@ -11,9 +11,30 @@
 # which cannot be firewalled. Deploy MUST set PORT_RANGE on that service to
 # exactly the range below so appserv -> service SRPC is allowed.
 
+# Client-facing ports are INTERNET-FACING BY DESIGN and default to 0.0.0.0/0.
+# These are the surfaces real users reach from arbitrary networks: dataserv
+# 6464 (clients mount) and blockserv 9100 (client byte plane). Access control
+# for both is at the APPLICATION layer, not the network: Noise plus per-volume
+# access keys on the data path and a signed JWT on the Admin API. A source-IP
+# allowlist adds no real protection there — it only breaks legitimate clients,
+# and pinning it to an operator's own dynamic/residential address silently
+# locks the whole deployment out when the ISP rotates it (packets are DROPPED,
+# so every request hangs with no error).
+#
+# GCP mechanism note: this variable drives the two VPC firewall rules below AND
+# a Cloud Armor policy in lb.tf. appserv 443 arrives through the GLOBAL HTTPS
+# LB, whose frontend is a Google-managed proxy outside this VPC, so no firewall
+# rule can source-filter it; the Cloud Armor policy on the backend service is
+# what restricts discovery. That policy is created ONLY when client_cidr is
+# narrowed, because Cloud Armor is chargeable.
+#
+# Narrowing it is still supported for a private/single-tenant deployment that
+# genuinely fronts these with a VPN or fixed office range — set it explicitly
+# in that case. Do NOT narrow it on a deployment serving real clients.
 variable "client_cidr" {
-  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100) (required — do not use 0.0.0.0/0 in production)."
+  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100). Defaults to 0.0.0.0/0: these are internet-facing by design and authenticated at the application layer. Narrowing it also creates a chargeable Cloud Armor policy, which is the only way to source-filter 443 behind the global HTTPS LB. Narrow only for a private deployment fronted by a VPN/fixed range."
   type        = string
+  default     = "0.0.0.0/0"
 }
 
 # Opt-in break-glass SSH (default OFF - no path exists at all unless set).
@@ -108,9 +129,11 @@ resource "google_compute_firewall" "appserv_https_from_lb" {
   }
 }
 
-# Client HTTPS to the LB itself is a Google Cloud Armor / LB frontend concern,
-# not an instance firewall rule (the external HTTPS LB terminates TLS at
-# Google's edge) — see lb.tf's backend_service + url_map.
+# Client HTTPS to the LB itself is a Cloud Armor / LB frontend concern, not an
+# instance firewall rule (the external HTTPS LB terminates TLS at Google's
+# edge). lb.tf attaches google_compute_security_policy.appserv to the backend
+# service when client_cidr is narrowed; that policy, not a rule here, is what
+# restricts client discovery on 443.
 
 # shared mode: tag-based (same network). dedicated mode: CIDR-based (region
 # network), since tags don't match across the peering boundary.
@@ -228,6 +251,25 @@ resource "google_compute_firewall" "dataserv_raft_self" {
   }
 }
 
+# The raft JOIN handshake is separate from the raft data plane above: a joining
+# node dials an existing peer's SRPC/RPC port (6466), not the raft port (6465),
+# to ask for admission. Without this, a fresh node self-bootstraps alone and
+# every other node retries "no peer accepted join request" forever — a
+# permanent single-node quorum that still reports healthy per node. Self-tagged
+# like the 6465 rule so it holds in both shared and dedicated region-VPC modes;
+# the appserv-sourced 6466 rule below is a different source, not a substitute.
+resource "google_compute_firewall" "dataserv_rpc_self" {
+  name        = "${local.name_root}-dataserv-rpc-self"
+  network     = local.region_network
+  direction   = "INGRESS"
+  target_tags = ["mountos-dataserv"]
+  source_tags = ["mountos-dataserv"]
+  allow {
+    protocol = "tcp"
+    ports    = ["6466"]
+  }
+}
+
 resource "google_compute_firewall" "dataserv_srpc_from_appserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
   name        = "${local.name_root}-dataserv-srpc-from-appserv"
@@ -254,7 +296,12 @@ resource "google_compute_firewall" "dataserv_srpc_from_appserv_cidr" {
   }
 }
 
-# ---------- gcserv ingress (region network; standalone only, co-located needs none) ----------
+# ---------- gcserv ingress (region network) ----------
+# Applies to CO-LOCATED gcserv too: region-compute.tf tags the dataserv
+# instances "mountos-gcserv" as well when gcserv_colocated, so port 8081 below
+# is the port the co-located unit must actually bind. That is why its systemd
+# unit pins RPC_PORT=8081 rather than letting it derive from the overridden
+# PORT — a derived port would land outside this rule.
 resource "google_compute_firewall" "gcserv_srpc_from_appserv" {
   count       = local.region_dedicated_vpc ? 0 : 1
   name        = "${local.name_root}-gcserv-srpc-from-appserv"

@@ -43,19 +43,22 @@ resource "google_compute_instance_template" "dataserv" {
 
   metadata = {
     startup-script = templatefile("${path.module}/region-cloud-init.dataserv.sh.tftpl", {
-      vault_provider          = var.region_vault_provider
-      vault_addr              = var.region_vault_addr
-      vault_role_id           = var.region_vault_role_id
-      vault_ca_source         = local.region_vault_ca_source
-      project_id              = var.project_id
-      region_vault_ca_secret  = local.region_vault_ca_secret_name
-      region_secret_id_secret = local.region_vault_secret_id_name
-      region_cluster_id       = var.region_cluster_id
-      srpc_addr               = "${google_compute_forwarding_rule.appserv_srpc.ip_address}:9443"
-      arena_size              = var.arena_size
-      mos_version             = var.mos_version
-      mos_installer_sha256    = var.mos_installer_sha256
-      gcserv_colocated        = var.gcserv_colocated
+      vault_provider             = var.region_vault_provider
+      vault_addr                 = var.region_vault_addr
+      vault_role_id              = var.region_vault_role_id
+      vault_ca_source            = local.region_vault_ca_source
+      project_id                 = var.project_id
+      region_vault_ca_secret     = local.region_vault_ca_secret_name
+      region_secret_id_secret    = local.region_vault_secret_id_name
+      region_cluster_id          = var.region_cluster_id
+      srpc_addr                  = "${google_compute_forwarding_rule.appserv_srpc.ip_address}:9443"
+      arena_size                 = var.arena_size
+      mos_version                = var.mos_version
+      mos_installer_sha256       = var.mos_installer_sha256
+      resource_prefix            = var.resource_prefix
+      dataserv_db_max_open_conns = var.dataserv_db_max_open_conns
+      gcserv_db_max_open_conns   = var.gcserv_db_max_open_conns
+      gcserv_colocated           = var.gcserv_colocated
     })
     block-project-ssh-keys   = "true"
     enable-oslogin           = "TRUE"

@@ -130,7 +130,7 @@ variable "mos_version" {
 
 variable "mos_installer_sha256" {
   type        = string
-  description = "Optional sha256 of the n.sh installer script; when set, cloud-init verifies before executing."
+  description = "Optional sha256 of the mountos.sh/install installer script; when set, cloud-init verifies before executing."
   default     = ""
 }
 
@@ -174,4 +174,15 @@ locals {
   # ADMIN_DB_URL in answers.env for the seed step — Terraform neither needs nor
   # stores it. provision-sql: build the DSN from admin_db_host + the
   # mountos-admin-db-password secret (see outputs.tf).
+}
+
+# See region-variables.tf's dataserv/gcserv equivalents for the full rationale
+# and the DIALECT-SENSITIVE warning (a distributed engine wants MORE, not less,
+# so pinning a single-primary value here would cap it). Empty = let the binary
+# size its own pool. Note appserv_count defaults to 2, so this value is held
+# TWICE against the admin DB in a default deployment.
+variable "appserv_db_max_open_conns" {
+  type        = string
+  description = "DB_MAX_OPEN_CONNS for appserv against the admin DB. Empty = let the binary size its own pool (min(max(8*vCPU,50),200), x4 if distributed)."
+  default     = ""
 }

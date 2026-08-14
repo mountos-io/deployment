@@ -26,8 +26,16 @@ dns_zone_resource_group = "" # required when dns_zone_name is set
 # integrated CA, Let's Encrypt, or import an existing PFX).
 hub_certificate_secret_id = ""
 
-# CIDR allowed to reach client-facing ports. Required; scope to your network — do not use 0.0.0.0/0 in production.
-client_cidr = "203.0.113.0/24" # REPLACE with your operator/client CIDR
+# client_cidr is intentionally NOT set here: it defaults to 0.0.0.0/0.
+# Client-facing ports (client discovery, client mount, client byte plane) are
+# internet-facing BY DESIGN and authenticated at the application layer (Noise +
+# per-volume access keys, signed JWT). Pinning them to one CIDR breaks real
+# clients, and pinning to an operator's dynamic IP silently locks the
+# deployment out when the ISP rotates it — packets are DROPPED, so every
+# request just hangs with no error.
+# Uncomment ONLY for a private deployment genuinely fronted by a VPN or a fixed
+# office range:
+# client_cidr = "203.0.113.0/24"
 
 # appserv fleet (arm64, Dpsv5).
 appserv_count    = 2
@@ -69,7 +77,7 @@ vault_secret_id = ""
 # mountOS package version. Empty installs latest.
 mos_version = ""
 
-# sha256 of the https://n.sh installer script; when set, cloud-init verifies
+# sha256 of the https://mountos.sh/install installer script; when set, cloud-init verifies
 # the download before executing it. Strongly recommended for production.
 mos_installer_sha256 = ""
 

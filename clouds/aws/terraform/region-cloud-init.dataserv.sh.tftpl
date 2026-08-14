@@ -140,6 +140,27 @@ EOF
 
 %{ if gcserv_colocated ~}
 # Co-located gcserv: second unit, same bootstrap env. No db install (dataserv owns the schema).
+# gcserv-specific overrides, read AFTER dataserv.env so they win. gcserv and
+# the co-located dataserv share every other value.
+#
+# PORT: both binaries default to 8080 for their own HTTP (health/metrics)
+# server, so without this gcserv crash-loops on "bind: address already in
+# use" while the node still looks healthy. RPC_PORT is pinned explicitly
+# rather than left to derive from the new PORT (it defaults to PORT+1), because
+# the firewall rule for gcserv SRPC hard-codes 8081; moving PORT alone would
+# silently shift the RPC port outside that rule.
+cat >/etc/mountos/gcserv.env <<EOF
+PORT=8090
+RPC_PORT=8081
+%{ if gcserv_db_max_open_conns != "" ~}
+# gcserv holds its OWN pool against the regional DB, separate from the
+# co-located dataserv's: background GC needs far fewer connections than the hot
+# metadata path.
+DB_MAX_OPEN_CONNS=${gcserv_db_max_open_conns}
+%{ endif ~}
+EOF
+chmod 0600 /etc/mountos/gcserv.env
+
 cat >/etc/systemd/system/gcserv.service <<EOF
 [Unit]
 Description=mountOS gcserv
@@ -153,22 +174,13 @@ EnvironmentFile=/etc/mountos/dataserv.env
 EnvironmentFile=-/etc/mountos/dataserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "ssm" }/${name_root}/region/vault-ca%{ else }-%{ endif } /${name_root}/region/vault-secret-id ${region} /etc/mountos/dataserv.secret.env
 %{ endif ~}
-# gcserv shares dataserv.env verbatim (co-located, same env file) — neither
-# sets PORT explicitly, so both default to 8080 for their own HTTP (health/
-# metrics) server and gcserv's own service crash-loops on bind: address
-# already in use. Override after EnvironmentFile so these win. RPC_PORT is
-# pinned explicitly (not left to derive from the new PORT) because it
-# already defaults to 8081 = PORT(8080)+1, matching security-groups.tf's
-# gcserv_srpc_from_appserv rule — moving PORT alone would silently shift it.
-Environment=PORT=8090
-Environment=RPC_PORT=8081
-%{ if gcserv_db_max_open_conns != "" ~}
-# gcserv holds its OWN pool against the regional DB, separate from the
-# co-located dataserv's. Set here rather than in the shared env file so the
-# two can differ: background GC needs far fewer connections than the hot
-# metadata path. Environment= wins over EnvironmentFile.
-Environment=DB_MAX_OPEN_CONNS=${gcserv_db_max_open_conns}
-%{ endif ~}
+# gcserv.env is listed AFTER dataserv.env and carries every gcserv-specific
+# override. Do NOT use Environment= for this: systemd.exec specifies that
+# EnvironmentFile= settings override Environment= settings regardless of the
+# order the lines appear in, so an Environment= override of any key that
+# dataserv.env also defines is silently discarded. Later EnvironmentFile=
+# entries DO override earlier ones, which is the mechanism that works here.
+EnvironmentFile=/etc/mountos/gcserv.env
 ExecStart=/usr/local/bin/gcserv
 Restart=always
 RestartSec=10

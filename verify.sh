@@ -22,7 +22,9 @@ code="$(curl -s -o /dev/null -w '%{http_code}' "$HUB_URL/api/v1/accounts/list" |
 
 # admin-JWT smoke (proves the signed-JWT auth path end to end)
 if [[ -f "$secrets" ]]; then
-  # Prefer the prebuilt helper (n.sh --pkg mos-verify); fall back to source for in-repo dev.
+  # Prefer the prebuilt helper (mountos.sh/install --pkg mos-verify) when it exists;
+  # fall back to building from source. NOTE: mos-verify is NOT published yet, so the
+  # source path is the one that actually runs today. Do not remove it.
   if command -v mos-verify >/dev/null 2>&1; then runner=(mos-verify); else runner=(go -C "$here/verify" run .); fi
   smoke="$(MOUNTOS_BASE_URL="$HUB_URL" MOUNTOS_PRIVATE_KEY="$(jq -r .admin_private "$secrets")" \
     "${runner[@]}" 2>&1 | tail -1)"

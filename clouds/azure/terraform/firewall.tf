@@ -12,9 +12,24 @@
 # which cannot be firewalled. Deploy MUST set PORT_RANGE on that service to
 # exactly the range below so appserv -> service SRPC is allowed.
 
+# Client-facing ports are INTERNET-FACING BY DESIGN and default to 0.0.0.0/0.
+# These are the surfaces real users reach from arbitrary networks: appserv 443
+# (clients call discovery), dataserv 6464 (clients mount), blockserv 9100
+# (client byte plane). Access control for all of them is at the APPLICATION
+# layer, not the network: Noise plus per-volume access keys on the data path
+# and a signed JWT on the Admin API. A source-IP allowlist adds no real
+# protection there — it only breaks legitimate clients, and pinning it to an
+# operator's own dynamic/residential address silently locks the whole
+# deployment out when the ISP rotates it (packets are DROPPED, so every
+# request hangs with no error).
+#
+# Narrowing it is still supported for a private/single-tenant deployment that
+# genuinely fronts these with a VPN or fixed office range — set it explicitly
+# in that case. Do NOT narrow it on a deployment serving real clients.
 variable "client_cidr" {
-  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100) (required — do not use 0.0.0.0/0 in production)."
+  description = "CIDR allowed to reach client-facing ports (appserv 443, dataserv 6464, blockserv 9100). Defaults to 0.0.0.0/0: these are internet-facing by design and authenticated at the application layer. Narrow only for a private deployment fronted by a VPN/fixed range."
   type        = string
+  default     = "0.0.0.0/0"
 }
 
 locals {
@@ -166,6 +181,28 @@ resource "azurerm_network_security_rule" "dataserv_raft_self" {
   protocol                                   = "Tcp"
   source_port_range                          = "*"
   destination_port_range                     = "6465"
+  source_application_security_group_ids      = [azurerm_application_security_group.dataserv.id]
+  destination_application_security_group_ids = [azurerm_application_security_group.dataserv.id]
+}
+
+# The raft JOIN handshake is separate from the raft data plane above: a joining
+# node dials an existing peer's SRPC/RPC port (6466), not the raft port (6465),
+# to ask for admission. Without this, a fresh node self-bootstraps alone and
+# every other node retries "no peer accepted join request" forever — a
+# permanent single-node quorum that still reports healthy per node. ASG-to-ASG
+# like the 6465 rule so it holds in both shared and dedicated region-VNet
+# modes; the appserv-sourced 6466 rule below is a different source, not a
+# substitute.
+resource "azurerm_network_security_rule" "dataserv_rpc_self" {
+  name                                       = "dataserv-rpc-self"
+  resource_group_name                        = azurerm_resource_group.main.name
+  network_security_group_name                = azurerm_network_security_group.region.name
+  priority                                   = 113
+  direction                                  = "Inbound"
+  access                                     = "Allow"
+  protocol                                   = "Tcp"
+  source_port_range                          = "*"
+  destination_port_range                     = "6466"
   source_application_security_group_ids      = [azurerm_application_security_group.dataserv.id]
   destination_application_security_group_ids = [azurerm_application_security_group.dataserv.id]
 }

@@ -47,8 +47,9 @@ resource "azurerm_subnet" "private" {
   address_prefixes     = [var.vnet_cidr_private]
 }
 
-# NAT Gateway for the private subnet's egress (n.sh installer, package fetches,
-# Vault/Key Vault calls out). Public-subnet instances use their own public IP.
+# NAT Gateway for the private subnet's egress (mountos.sh installer, package
+# fetches, Vault/Key Vault calls out). Public-subnet instances use their own
+# public IP.
 resource "azurerm_public_ip" "nat" {
   name                = "${local.name_root}-nat"
   resource_group_name = azurerm_resource_group.main.name

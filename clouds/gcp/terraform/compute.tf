@@ -31,15 +31,17 @@ resource "google_compute_instance_template" "appserv" {
 
   metadata = {
     startup-script = templatefile("${path.module}/cloud-init.appserv.sh.tftpl", {
-      vault_provider           = var.vault_provider
-      vault_addr               = var.vault_addr
-      vault_role_id            = var.vault_role_id
-      vault_ca_source          = local.hub_vault_ca_source
-      project_id               = var.project_id
-      hub_vault_ca_secret      = local.hub_vault_ca_secret_name
-      appserv_secret_id_secret = local.appserv_secret_id_name
-      mos_version              = var.mos_version
-      mos_installer_sha256     = var.mos_installer_sha256
+      vault_provider            = var.vault_provider
+      vault_addr                = var.vault_addr
+      vault_role_id             = var.vault_role_id
+      vault_ca_source           = local.hub_vault_ca_source
+      project_id                = var.project_id
+      hub_vault_ca_secret       = local.hub_vault_ca_secret_name
+      appserv_secret_id_secret  = local.appserv_secret_id_name
+      mos_version               = var.mos_version
+      mos_installer_sha256      = var.mos_installer_sha256
+      resource_prefix           = var.resource_prefix
+      appserv_db_max_open_conns = var.appserv_db_max_open_conns
     })
     block-project-ssh-keys   = "true"
     enable-oslogin           = "TRUE"
