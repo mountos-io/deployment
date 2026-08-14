@@ -72,6 +72,42 @@ resource "aws_iam_role_policy_attachment" "mount_client_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Optional: let the client fetch its own volume credentials from Secrets Manager
+# at mount time, instead of an operator pasting them into every new instance.
+#
+# This exists because the client is DISPOSABLE. Terminating and recreating it is
+# the normal way to change its size or start clean, and each new instance
+# otherwise arrives with an empty credentials stub. Secrets Manager is the right
+# channel rather than instance user-data or an SSM send-command: user-data is
+# readable from inside the instance forever and is stored with the instance,
+# and send-command parameters are recorded VERBATIM in CloudTrail. A
+# GetSecretValue response is redacted there.
+#
+# Still a volume access key, not an operator credential: it reaches exactly one
+# volume and nothing in the control plane. Leave the variable empty and the
+# grant is not created at all, which keeps the default posture of a client that
+# holds no AWS permissions beyond SSM.
+variable "mount_client_credentials_secret_arn" {
+  type        = string
+  description = "ARN of a Secrets Manager secret holding the client's mountOS profile (access key id, secret, discovery URL). Empty disables the grant; credentials are then supplied by the operator at mount time."
+  default     = ""
+}
+
+data "aws_iam_policy_document" "mount_client_secret" {
+  count = var.mount_client_enabled && var.mount_client_credentials_secret_arn != "" ? 1 : 0
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [var.mount_client_credentials_secret_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "mount_client_secret" {
+  count  = var.mount_client_enabled && var.mount_client_credentials_secret_arn != "" ? 1 : 0
+  name   = "${local.name_root}-mount-client-secret"
+  role   = aws_iam_role.mount_client[0].id
+  policy = data.aws_iam_policy_document.mount_client_secret[0].json
+}
+
 resource "aws_iam_instance_profile" "mount_client" {
   count = var.mount_client_enabled ? 1 : 0
   name  = "${local.name_root}-mount-client"
