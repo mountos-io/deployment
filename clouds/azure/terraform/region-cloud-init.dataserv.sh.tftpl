@@ -53,7 +53,16 @@ meta() { curl -fsSL -H "Metadata: true" "http://169.254.169.254/metadata/$1"; }
 # and it is NOT retried: Azure returns 404 both for "no load balancer" and for
 # "the API is still being enabled", so a 404 proves nothing either way. ARM
 # below is authoritative, so falling straight through to it beats guessing.
-PUB_IP="$(meta 'loadbalancer?api-version=2020-10-01' 2>/dev/null | jq -r '.loadbalancer.publicIpAddresses[0].frontendIpAddress // empty' || true)"
+# Matched on privateIpAddress rather than taking [0]: the list is per IP
+# configuration, so on a VM with more than one the first entry need not be ours,
+# and advertising another configuration's address would be wrong in a way
+# nothing downstream would catch. Falls back to the first entry when there is
+# nothing to pair on, which is the normal single-configuration case.
+PRIV_IP="$(meta "instance/network/interface/0/ipv4/ipAddress/0/privateIpAddress?api-version=2021-02-01&format=text" 2>/dev/null || true)"
+PUB_IP="$(meta 'loadbalancer?api-version=2020-10-01' 2>/dev/null | jq -r --arg priv "$PRIV_IP" '
+  .loadbalancer.publicIpAddresses as $a
+  | (($a[]? | select(.privateIpAddress == $priv) | .frontendIpAddress), ($a[0]?.frontendIpAddress))
+  | select(. != null and . != "")' 2>/dev/null | head -n 1 || true)"
 
 # Source 2: ARM. Authoritative, and the fallback when source 1 is unavailable.
 # The token comes from IMDS against the VM's user-assigned identity, so nothing
