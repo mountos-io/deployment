@@ -349,6 +349,6 @@ if [[ "$REGION_VAULT_PROVIDER" == "hashicorp" ]]; then
 else
   echo "==> done. Region instances read the store with their platform identity (no AppRole/token)."
 fi
-echo "     After dataserv registers over SRPC, the region's uno cluster flips ready."
+echo "     After dataserv registers over SRPC, the region's uno metadata cluster flips ready."
 echo "     blockserv keys are already seeded above; set block_enable=true in tfvars"
 echo "     only if you want it RUNNING."
