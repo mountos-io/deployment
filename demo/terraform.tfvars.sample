@@ -31,12 +31,12 @@ admin_domain               = "" # REQUIRED when admin_client_enabled — e.g. ad
 admin_client_instance_type = "t4g.small"
 
 # ---------- database: one shared RDS instance instead of two ----------
-admin_db_mode                = "provision-rds"
-admin_db_provider_version    = "18"
-db_instance_class            = "db.t4g.medium"
-db_allocated_gb               = 20
-db_username                   = "mountos"
-share_admin_rds_with_region   = true
+admin_db_mode               = "provision-rds"
+admin_db_provider_version   = "18"
+db_instance_class           = "db.t4g.medium"
+db_allocated_gb             = 20
+db_username                 = "mountos"
+share_admin_rds_with_region = true
 
 # ---------- secret store ----------
 vault_provider = "aws"
@@ -53,11 +53,11 @@ mos_version = "" # empty installs latest
 region_cluster_id      = "00000000-0000-0000-0000-000000000000"
 dataserv_count         = 3
 dataserv_instance_type = "r7g.large" # memory-optimized, 1/4 the size of the production default
-arena_size              = "1GB"
-raft_ebs_gb             = 30 # reduced from the 100GB production default; demo data is disposable
-region_db_mode          = "byo" # points at the shared admin RDS instance, see REGION_DB_URL in answers.sample.env
-region_vault_provider   = "aws"
-gcserv_colocated        = true
+arena_size             = "1GB"
+raft_ebs_gb            = 30    # reduced from the 100GB production default; demo data is disposable
+region_db_mode         = "byo" # points at the shared admin RDS instance, see REGION_DB_URL in answers.sample.env
+region_vault_provider  = "aws"
+gcserv_colocated       = true
 
 # ---------- blockserv (add in a later apply, once a block storage exists) ----------
 # Left disabled for the first apply — block_volume_id UUIDs don't exist until
@@ -68,6 +68,6 @@ block_enable = false
 #   { block_volume_id = "<uuid-2>", az_index = 1 },
 # ]
 block_instance_type    = "m7g.large" # small — size up later once testing real byte-plane load
-block_cache_gb          = 50
+block_cache_gb         = 50
 block_cache_iops       = 3000 # gp3 baseline, no extra IOPS charge
 block_cache_throughput = 125  # gp3 baseline, no extra throughput charge

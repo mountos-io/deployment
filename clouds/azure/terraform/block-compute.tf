@@ -95,7 +95,7 @@ resource "azurerm_linux_virtual_machine" "blockserv" {
   # reaches this template replaces the VM. That is the convergence behaviour we
   # want (GCP needs an explicit replace trigger to match), but note the blast
   # radius: for_each replaces every member in the SAME apply, so an
-  # active-active mesh of three goes down together. The cache disk and the
+  # active-active copyset mesh goes down together. The cache disk and the
   # static public IP survive; availability does not.
   # Use `make block-roll` instead of a bare apply once the mesh is serving: it
   # walks the members one at a time so the rest keep answering.

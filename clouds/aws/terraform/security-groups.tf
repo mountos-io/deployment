@@ -226,7 +226,7 @@ resource "aws_vpc_security_group_ingress_rule" "blockserv_client" {
 }
 # Peer 9101: self-referencing rule lets any two blockserv instances in this
 # security group reach each other, so a copyset's two members can always
-# peer-sync regardless of which region cluster either registered under.
+# peer-sync.
 resource "aws_vpc_security_group_ingress_rule" "blockserv_peer_self" {
   security_group_id            = aws_security_group.blockserv.id
   referenced_security_group_id = aws_security_group.blockserv.id

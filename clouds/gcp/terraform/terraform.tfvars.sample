@@ -38,8 +38,8 @@ hub_certificate_id = "" # set this OR dns_zone_name for the HTTPS proxy
 # iap_ssh_enable = true
 
 # appserv fleet (arm64, Tau T2A).
-appserv_count         = 2
-appserv_machine_type  = "t2a-standard-2"
+appserv_count        = 2
+appserv_machine_type = "t2a-standard-2"
 
 # Admin DB (PostgreSQL dialect). RECOMMENDED: byo — bring a managed HA
 # PostgreSQL you already operate (Cloud SQL HA, AlloyDB, etc.); this package
@@ -101,8 +101,8 @@ region_vpc_mode        = "shared"
 region_vpc_cidr_public = "10.1.0.0/24" # used only when region_vpc_mode = dedicated
 
 # dataserv fleet (arm64). 1 per zone for raft quorum.
-dataserv_count         = 3
-dataserv_machine_type  = "t2a-standard-8"
+dataserv_count        = 3
+dataserv_machine_type = "t2a-standard-8"
 
 # METAENGINE_ARENA_SIZE unit string. ~5M files/GiB; prod is much larger.
 arena_size = "1GB"

@@ -1,3 +1,6 @@
+# Local Claude Code tooling — never commit.
+.claude/
+
 # Client-supplied / generated — never commit.
 answers.env
 *secrets.local.json

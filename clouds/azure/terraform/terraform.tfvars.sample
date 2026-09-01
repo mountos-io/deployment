@@ -38,8 +38,8 @@ hub_certificate_secret_id = ""
 # client_cidr = "203.0.113.0/24"
 
 # appserv fleet (arm64, Dpsv5).
-appserv_count    = 2
-appserv_vm_size  = "Standard_D2ps_v5"
+appserv_count   = 2
+appserv_vm_size = "Standard_D2ps_v5"
 
 # Admin DB (PostgreSQL dialect). RECOMMENDED: byo — bring a managed HA
 # PostgreSQL you already operate; this package then provisions no DB and never

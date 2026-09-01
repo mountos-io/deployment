@@ -97,8 +97,8 @@ dataserv_instance_type = "r7g.2xlarge"
 arena_size = "1GB"
 
 # Raft data volume (EBS gp3) at /mnt/raft. Ephemeral per instance; quorum re-syncs on replacement.
-raft_ebs_gb                = 100
-raft_ebs_iops              = 3000
+raft_ebs_gb   = 100
+raft_ebs_iops = 3000
 # region_db_provider_version = "18"
 
 # Run gcserv co-located on each dataserv instance.
