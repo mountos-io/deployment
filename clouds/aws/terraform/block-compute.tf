@@ -6,7 +6,8 @@
 # addressed by a persistent BLOCK_VOLUME_ID and aren't expected to churn via
 # rolling replacement, so a stable address avoids unnecessary re-discovery.
 # Registers with the hub over SRPC at the hub NLB :9443; reaches the region Vault
-# over the network (no KMS). Peers on 9101 across distinct clusters.
+# over the network (no KMS). Peers with its copyset partner on 9101; a copyset
+# has no cluster concept of its own, so the peer path is region-wide.
 
 # ---------- blockserv IAM: SSM only; no KMS ----------
 resource "aws_iam_role" "blockserv" {

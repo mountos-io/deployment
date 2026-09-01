@@ -15,7 +15,7 @@ variable "block_members" {
     block_volume_id = string
     az_index        = number
   }))
-  description = "Active-active members of a block storage (up to 3, distinct AZs). Each has its own block volume UUID from hub storage provisioning; az_index selects the private subnet/AZ."
+  description = "Every blockserv instance to provision for this block storage, however many. Pairing into copysets (two members each) happens on the hub before this list is built, via registerCopyset/registerCopysetsBulk, which mints each member's block volume UUID; list every minted UUID here. az_index selects the private subnet/AZ - putting a copyset's two members in different AZs is advised for fault isolation, not enforced or tracked by mountOS."
   default     = []
 }
 

@@ -135,13 +135,16 @@ region_vault_secret_id = ""
 # the same mountos/data/* policy).
 block_enable = false
 
-# Active-active members of one block storage (up to 3, distinct AZs). Each
-# block_volume_id is a block volume UUID from provisioning a block storage on the
-# hub via the Admin SDK; az_index selects which private subnet/AZ the member lands in.
+# Every blockserv instance to provision for this block storage. Register copysets
+# on the hub first (Admin SDK registerCopyset/registerCopysetsBulk); each call mints
+# two block_volume_id UUIDs, one per paired server - list every minted UUID here,
+# however many copysets you've registered. az_index selects which private
+# subnet/AZ a member lands in; placing a copyset's two members in different AZs
+# is advised for fault isolation, not enforced or tracked by mountOS.
 block_members = [
+  # one copyset = two members, from one registerCopyset call:
   # { block_volume_id = "00000000-0000-0000-0000-000000000000", az_index = 0 },
   # { block_volume_id = "11111111-1111-1111-1111-111111111111", az_index = 1 },
-  # { block_volume_id = "22222222-2222-2222-2222-222222222222", az_index = 2 },
 ]
 
 # Network-enhanced arm64 family and throughput-oriented cache EBS per member.

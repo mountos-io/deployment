@@ -224,8 +224,9 @@ resource "aws_vpc_security_group_ingress_rule" "blockserv_client" {
   ip_protocol       = "tcp"
   description       = "client block I/O, Noise"
 }
-# Peer 9101: block volumes form a mesh across distinct clusters. Single-cluster template references self;
-# add the other clusters' blockserv SGs for the full cross-cluster mesh.
+# Peer 9101: self-referencing rule lets any two blockserv instances in this
+# security group reach each other, so a copyset's two members can always
+# peer-sync regardless of which region cluster either registered under.
 resource "aws_vpc_security_group_ingress_rule" "blockserv_peer_self" {
   security_group_id            = aws_security_group.blockserv.id
   referenced_security_group_id = aws_security_group.blockserv.id
