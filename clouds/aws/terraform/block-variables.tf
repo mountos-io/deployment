@@ -14,6 +14,13 @@ variable "block_members" {
   type = list(object({
     block_volume_id = string
     az_index        = number
+    # Stable Elastic IP (default) vs the subnet's auto-assigned ephemeral public IP.
+    # An EIP is the right default (see block-compute.tf's file header for why), but
+    # each one counts against the account's EC2-VPC Elastic IP quota; set false for
+    # a member added past that quota rather than requesting an increase every time.
+    # Real tradeoff: an ephemeral address is NOT stable across an instance stop/start
+    # (a binary/process redeploy on a running instance is unaffected either way).
+    use_eip = optional(bool, true)
   }))
   description = "Every blockserv instance to provision for this block storage, however many. Pairing into copysets (two members each) happens on the hub before this list is built, via registerCopyset/registerCopysetsBulk, which mints each member's block volume UUID; list every minted UUID here. az_index selects the private subnet/AZ - putting a copyset's two members in different AZs is advised for fault isolation, not enforced or tracked by mountOS."
   default     = []

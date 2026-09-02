@@ -75,18 +75,21 @@ resource "aws_volume_attachment" "blockserv_cache" {
   instance_id = aws_instance.blockserv[each.key].id
 }
 
-# Stable public IP per member (see file header for why this is an EIP, not an
-# auto-assigned ephemeral one).
+# Stable public IP per member (see file header for why this is the default), for
+# members with use_eip = true. A member with use_eip = false gets the subnet's
+# auto-assigned ephemeral public IP instead (associate_public_ip_address below) -
+# each EIP counts against the account's quota, so this is the escape hatch for a
+# member added past it rather than requesting an increase every time.
 resource "aws_eip" "blockserv" {
-  for_each = local.block_members_map
+  for_each = { for k, m in local.block_members_map : k => m if m.use_eip }
   domain   = "vpc"
   tags     = { Name = "${local.name_root}-blockserv-${each.key}" }
 }
 
 resource "aws_eip_association" "blockserv" {
-  for_each      = local.block_members_map
+  for_each      = aws_eip.blockserv
   instance_id   = aws_instance.blockserv[each.key].id
-  allocation_id = aws_eip.blockserv[each.key].id
+  allocation_id = each.value.id
 }
 
 resource "aws_instance" "blockserv" {
@@ -96,6 +99,9 @@ resource "aws_instance" "blockserv" {
   subnet_id              = local.region_public_subnets[each.value.az_index % length(local.region_public_subnets)].id
   iam_instance_profile   = aws_iam_instance_profile.blockserv[0].name
   vpc_security_group_ids = [aws_security_group.blockserv.id]
+  # EIP members: leave unset (the EIP association below covers it). Ephemeral
+  # members: explicit, since this is their only public address.
+  associate_public_ip_address = each.value.use_eip ? null : true
 
   root_block_device {
     volume_type = "gp3"
@@ -110,16 +116,20 @@ resource "aws_instance" "blockserv" {
   }
 
   user_data = base64encode(templatefile("${path.module}/block-cloud-init.blockserv.sh.tftpl", {
-    vault_provider       = var.region_vault_provider
-    vault_addr           = var.region_vault_addr
-    vault_role_id        = var.region_vault_role_id
-    vault_ca_source      = local.region_vault_ca_source
-    region               = var.region
-    name_root            = local.name_root
-    resource_prefix      = var.resource_prefix
-    region_cluster_id    = var.region_cluster_id
-    srpc_addr            = local.appserv_srpc_addr
-    advertise_addr       = aws_eip.blockserv[each.key].public_ip
+    vault_provider    = var.region_vault_provider
+    vault_addr        = var.region_vault_addr
+    vault_role_id     = var.region_vault_role_id
+    vault_ca_source   = local.region_vault_ca_source
+    region            = var.region
+    name_root         = local.name_root
+    resource_prefix   = var.resource_prefix
+    region_cluster_id = var.region_cluster_id
+    srpc_addr         = local.appserv_srpc_addr
+    use_eip           = each.value.use_eip
+    # EIP members: the known allocated address, to wait for IMDS to agree with it
+    # (see the template's own comment for why). Ephemeral members: nothing to wait
+    # for, IMDS's own public-ipv4 is authoritative the moment it appears.
+    advertise_addr       = each.value.use_eip ? aws_eip.blockserv[each.key].public_ip : ""
     block_volume_id      = each.value.block_volume_id
     delete_mode          = var.block_delete_mode
     mos_version          = var.mos_version
@@ -130,4 +140,16 @@ resource "aws_instance" "blockserv" {
   depends_on = [aws_ssm_parameter.region_secret_id]
 
   tags = { Name = "${local.name_root}-blockserv-${each.key}" }
+
+  lifecycle {
+    # user_data only runs once, at first boot; AWS never re-executes it on a
+    # running instance from a Terraform update. So an unrelated template edit
+    # (e.g. this file's own use_eip conditional) would otherwise show a no-op
+    # diff on every ALREADY-RUNNING member every time the shared template
+    # changes at all, even members whose own rendered content didn't actually
+    # change in any way that matters. Ignore it here; a deliberate content
+    # change that must actually take effect needs a real instance replacement
+    # anyway (taint, or a change to a force-replace attribute like ami).
+    ignore_changes = [user_data]
+  }
 }

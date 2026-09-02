@@ -44,12 +44,13 @@ systemctl enable --now fstrim.timer || echo "WARN: fstrim.timer unavailable; per
 # Elastic IP would make same-VPC peers dial a public address and hit the AWS
 # hairpin limitation (an instance cannot reliably reach a VPC-mate's public IP).
 #
+TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+%{ if use_eip ~}
 # The member's Elastic IP is still terraform-known, so instead of trusting IMDS
 # blindly we WAIT for the EIP association to land: a freshly-booted instance
 # briefly reports its ephemeral public IP, and advertising that would publish a
 # wrong, short-lived client address. Poll until IMDS agrees with the EIP.
-TOKEN=$(curl -fsSL -X PUT "http://169.254.169.254/latest/api/token" \
-  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
 for _ in $(seq 1 60); do
   PUB_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" \
     http://169.254.169.254/latest/meta-data/public-ipv4 || true)
@@ -57,6 +58,20 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 [ "$PUB_IP" = "${advertise_addr}" ] || { echo "EIP ${advertise_addr} never associated (IMDS reports '$PUB_IP'); refusing to advertise a transient address" >&2; exit 1; }
+%{ else ~}
+# No EIP for this member (use_eip=false, past the account's quota) - the subnet's
+# own auto-assigned public IP is this member's ONLY address, nothing to wait for
+# it to match; just wait for IMDS to report it at all (a brief delay right at
+# boot is normal), unlike the EIP case there is no "wrong, short-lived" address
+# to guard against here.
+for _ in $(seq 1 60); do
+  PUB_IP=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/public-ipv4 || true)
+  [ -n "$PUB_IP" ] && break
+  sleep 2
+done
+[ -n "$PUB_IP" ] || { echo "no public IP ever appeared on IMDS for this ephemeral-address member" >&2; exit 1; }
+%{ endif ~}
 
 install -d -m 0755 /etc/mountos
 
