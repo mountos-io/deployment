@@ -6,6 +6,20 @@ set -euo pipefail
 
 # Throughput-oriented cache volume at /mnt/blockcache. Wait for /dev/sdf to attach,
 # format XFS only if not already a filesystem, mount with the blockserv I/O options.
+#
+# Mount options beyond the base set (noatime,nodev,noexec,nosuid,nofail):
+#   logbsize=256k,logbufs=8  max out XFS's in-memory log buffering (default 32k/8k
+#     total) so a busy segment-write workload flushes the journal far less often;
+#     this is the standard XFS knob for write-heavy throughput, not a guess.
+#   allocsize=4m  encourages larger speculative extent preallocation for the
+#     mostly-large, mostly-sequential segment writes blockserv does, reducing
+#     fragmentation versus XFS's default dynamic (small-file-biased) heuristic;
+#     4m is a conservative, well-worn value, not tuned to any specific volume
+#     size, workload shape below this may want a different one.
+# TRIM is handled by the stock fstrim.timer (enabled below) rather than the
+# `discard` mount option: batched TRIM avoids paying inline discard latency on
+# every write while still reclaiming space periodically, the usual tradeoff for
+# an IOPS/throughput-provisioned gp3 volume.
 CACHE_DEV=/dev/sdf
 CACHE_DIR=/mnt/blockcache
 for _ in $(seq 1 60); do
@@ -18,8 +32,9 @@ if ! blkid "$CACHE_DEV" >/dev/null 2>&1; then
 fi
 CACHE_UUID=$(blkid -s UUID -o value "$CACHE_DEV")
 grep -q "$CACHE_UUID" /etc/fstab || \
-  echo "UUID=$CACHE_UUID $CACHE_DIR xfs rw,async,noatime,nodev,noexec,nosuid,nofail 0 2" >>/etc/fstab
+  echo "UUID=$CACHE_UUID $CACHE_DIR xfs rw,async,noatime,nodev,noexec,nosuid,nofail,logbsize=256k,logbufs=8,allocsize=4m 0 2" >>/etc/fstab
 mount -a
+systemctl enable --now fstrim.timer || echo "WARN: fstrim.timer unavailable; periodic TRIM disabled" >&2
 
 # ADVERTISE_ADDR is deliberately NOT set: blockserv auto-detects via IMDS,
 # which yields BOTH public-ipv4 (clients reach the byte plane directly) and
