@@ -6,7 +6,7 @@ set -euo pipefail
 
 # Raft data dir at /mnt/raft (ephemeral per instance). Format if blank, mount, and
 # add to fstab for reboots. On ASG replacement the node rejoins quorum and re-syncs
-# from peers — raft state is NOT migrated across replacements.
+# from peers. Raft state is NOT migrated across replacements.
 RAFT_DEV=/dev/sdf
 RAFT_DIR=/mnt/raft
 install -d -m 0750 "$RAFT_DIR"
@@ -22,10 +22,10 @@ mount -a
 
 # ADVERTISE_ADDR is deliberately NOT set: dataserv auto-detects via IMDS,
 # which yields BOTH public-ipv4 (reached directly by external clients, no
-# proxy — hence the public-subnet requirement) and local-ipv4 (used for
+# proxy, hence the public-subnet requirement) and local-ipv4 (used for
 # raft peer and hub<->region dials, which must stay inside the VPC).
 # Setting ADVERTISE_ADDR forces discovery's explicit-address mode, which
-# mirrors the one given address into both roles — so pinning it to the
+# mirrors the one given address into both roles, so pinning it to the
 # public IP would silently make peers dial the public address and hit the
 # same-VPC hairpin limitation that private addressing exists to avoid.
 # The probe below only sanity-checks that a public IP exists at all.
@@ -92,7 +92,7 @@ chmod 0600 /etc/mountos/dataserv.env
 # package: the installer only honors the LAST --pkg flag when given more than
 # one in a single call, silently skipping the earlier ones with no error.
 curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
-if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset; installing without verification"; fi
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-dataserv --version ${mos_version}
 %{ if gcserv_colocated ~}
@@ -125,7 +125,7 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "
 %{ endif ~}
 # '-' prefix: db install is a one-time schema setup shared by every dataserv
 # node pointed at the same regional DB (region_db_mode=byo especially, but
-# true in general) — the first node to boot installs it, every other node
+# true in general). The first node to boot installs it, every other node
 # (and every restart of any node, including this one) hits "already
 # installed" and exits non-zero. Not fatal: without '-', that failure would
 # block ExecStart on every restart after the first successful install.

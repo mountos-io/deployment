@@ -28,12 +28,37 @@ grep -q "$CACHE_UUID" /etc/fstab || \
   echo "UUID=$CACHE_UUID $CACHE_DIR xfs rw,async,noatime,nodev,noexec,nosuid,nofail 0 2" >>/etc/fstab
 mount -a
 
+# Host TCP tuning for clients on long-RTT links: 64 MiB autotuning ceilings,
+# fq + bbr, PMTU probing, and no send-rate reset on idle pooled connections.
+# tcp_mem stays at the kernel default, which the kernel sizes from host RAM.
+# Written before blockserv starts, so its sockets pick up these values.
+# blockserv never loads tcp_bbr itself; it uses bbr only when the kernel
+# lists it. The modprobe line below is therefore required.
+NET_CONF=/etc/sysctl.d/90-mountos-net.conf
+cat >"$NET_CONF" <<'EOF'
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.ipv4.tcp_rmem = 4096 131072 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.core.default_qdisc = fq
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+EOF
+modprobe tcp_bbr 2>/dev/null || true
+if grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control; then
+  echo tcp_bbr >/etc/modules-load.d/bbr.conf
+  echo "net.ipv4.tcp_congestion_control = bbr" >>"$NET_CONF"
+else
+  echo "WARN: tcp_bbr unavailable; TCP congestion control stays cubic" >&2
+fi
+sysctl --system >/dev/null || echo "WARN: sysctl --system reported errors; check $NET_CONF" >&2
+
 # ADVERTISE_ADDR is deliberately NOT set: blockserv auto-detects via IMDS,
 # which yields BOTH the public IP (clients reach the byte plane directly) and
 # the private IP (HA peer replication on 9101 and appserv<->blockserv SRPC,
 # which must stay inside the VNet). Setting ADVERTISE_ADDR forces discovery's
-# explicit-address mode, which mirrors the ONE given address into both roles —
-# pinning it to the static Public IP makes same-VNet peers dial a public
+# explicit-address mode, which mirrors the ONE given address into both roles.
+# Pinning it to the static Public IP makes same-VNet peers dial a public
 # address, which Azure does not reliably route back (hairpin), silently
 # breaking peer replication.
 #
@@ -123,7 +148,7 @@ chmod 0600 /etc/mountos/blockserv.env
 
 # Install blockserv. No db (data-plane node). No license file (hublicense model).
 curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
-if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset; installing without verification"; fi
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-blockserv --version ${mos_version}
 %{ else ~}

@@ -27,10 +27,10 @@ mount -a
 
 # ADVERTISE_ADDR is deliberately NOT set: dataserv auto-detects via the
 # metadata server, which yields BOTH the external IP (clients reach dataserv
-# directly, no proxy — hence the public-subnet requirement) and the internal
+# directly, no proxy, hence the public-subnet requirement) and the internal
 # IP (raft peer and hub<->region dials, which must stay inside the VPC).
 # Setting ADVERTISE_ADDR forces discovery's explicit-address mode, which
-# mirrors the ONE given address into both roles — pinning it to the external
+# mirrors the ONE given address into both roles. Pinning it to the external
 # IP makes peers dial a public address from inside the same network, which GCP
 # does not reliably route back (hairpin), and the failure is a silent timeout.
 # The probe below only sanity-checks that an external IP exists at all.
@@ -106,7 +106,7 @@ chmod 0600 /etc/mountos/dataserv.env
 # Install dataserv (+ gcserv when co-located). No license file: license arrives
 # from the hub over the heartbeat (hublicense model).
 curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
-if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset; installing without verification"; fi
 %{ if gcserv_colocated ~}
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-dataserv --version ${mos_version}

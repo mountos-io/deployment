@@ -10,10 +10,35 @@ set -euo pipefail
 # by hand (ls/cat/dd live in coreutils, already present).
 dnf install -y fuse3 tar
 
+# Host TCP tuning for a client far from the region: 64 MiB autotuning ceilings,
+# fq + bbr, PMTU probing, and no send-rate reset on idle pooled connections.
+# The allowed list lets the unprivileged client select bbr per socket.
+# The client never loads tcp_bbr itself; it checks for bbr once at startup
+# and uses it only when the kernel lists it. The modprobe line is required.
+NET_CONF=/etc/sysctl.d/90-mountos-net.conf
+cat >"$NET_CONF" <<'EOF'
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.ipv4.tcp_rmem = 4096 131072 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+net.core.default_qdisc = fq
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+EOF
+modprobe tcp_bbr 2>/dev/null || true
+if grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control; then
+  echo tcp_bbr >/etc/modules-load.d/bbr.conf
+  echo "net.ipv4.tcp_congestion_control = bbr" >>"$NET_CONF"
+  echo "net.ipv4.tcp_allowed_congestion_control = reno cubic bbr" >>"$NET_CONF"
+else
+  echo "WARN: tcp_bbr unavailable; TCP congestion control stays cubic" >&2
+fi
+sysctl --system >/dev/null || echo "WARN: sysctl --system reported errors; check $NET_CONF" >&2
+
 # ONE --pkg per invocation: the installer honors only the LAST --pkg flag when
 # given more than one in a single call, silently skipping the earlier ones.
 curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
-if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset — installing without verification"; fi
+if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset; installing without verification"; fi
 %{ if mos_version != "" ~}
 bash /tmp/mos-install.sh --pkg mountos-cli-linux --version ${mos_version}
 %{ else ~}
@@ -24,7 +49,7 @@ bash /tmp/mos-install.sh --pkg mountos-cli-linux
 #
 # Owned by the LOGIN user, not root: the whole point of this box is running
 # filesystem tests against the mount, and a root-owned FUSE mount forces every
-# write through sudo — awkward to drive, and not how a real user runs the
+# write through sudo, awkward to drive, and not how a real user runs the
 # client. An unprivileged mount also keeps created files owned by the tester,
 # so later inspection isn't muddied by root-owned artifacts.
 #
@@ -42,7 +67,7 @@ fi
 
 # Credentials stub: correct variable names and 0600 perms pre-set, VALUES LEFT
 # EMPTY ON PURPOSE. The operator fills it in from their own local profile
-# inside an interactive session — never through SSM send-command, whose
+# inside an interactive session, never through SSM send-command, whose
 # parameters are recorded verbatim in command history and CloudTrail.
 #
 # Written to /etc/skel FIRST, then copied into an existing home. ssm-user is
@@ -78,7 +103,7 @@ fi
 grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo user_allow_other >>/etc/fuse.conf
 
 # Breadcrumb so `ssm start-session` lands on something self-explanatory rather
-# than a bare prompt — this box is created and destroyed repeatedly, so the
+# than a bare prompt. This box is created and destroyed repeatedly, so the
 # next person (or the next session) should not have to reconstruct the usage.
 cat >/etc/motd <<'EOF'
 mountOS mount-test client (disposable).
