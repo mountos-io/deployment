@@ -32,8 +32,18 @@ output "admin_db_host" {
   value = local.provision_rds ? aws_db_instance.admin[0].endpoint : null
 }
 
+# Production: the AWS-managed secret behind manage_master_user_password.
+# Non-production: the Terraform-managed demo-only secret (rds.tf) that
+# password_wo is fed from instead, since manage_master_user_password (and so
+# master_user_secret) doesn't exist for non-production. Same {"password":
+# "..."} shape either way, so seed-vault.sh's consumption of this output
+# doesn't change with mode.
 output "admin_db_secret_arn" {
-  value = local.provision_rds ? aws_db_instance.admin[0].master_user_secret[0].secret_arn : null
+  value = (
+    !local.provision_rds ? null :
+    var.mode == "production" ? aws_db_instance.admin[0].master_user_secret[0].secret_arn :
+    aws_secretsmanager_secret.admin_demo_password[0].arn
+  )
 }
 
 output "account_id" {

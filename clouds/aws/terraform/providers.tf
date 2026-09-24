@@ -1,5 +1,9 @@
 terraform {
-  required_version = ">= 1.5"
+  # >= 1.11 for write-only arguments (rds.tf's password_wo/secret_string_wo,
+  # feeding the non-production admin DB password from an ephemeral resource
+  # without ever writing it to tfstate). Ephemeral resources alone need only
+  # >= 1.10, but write-only arguments are the stricter requirement here.
+  required_version = ">= 1.11"
   required_providers {
     aws = {
       source  = "hashicorp/aws"

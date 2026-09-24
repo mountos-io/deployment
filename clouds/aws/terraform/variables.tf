@@ -87,6 +87,12 @@ variable "db_username" {
   default     = "mountos"
 }
 
+variable "admin_demo_password_version" {
+  type        = number
+  description = "Rotation trigger for the non-production admin DB password (mode != production only; production always uses manage_master_user_password). A fresh ephemeral password is generated on every apply, but it's only WRITTEN to RDS/Secrets Manager when this number changes from its last-applied value - bump it deliberately to rotate, leave it alone otherwise so the DSN in seed-vault.sh/admin-client.env stays valid across routine applies."
+  default     = 1
+}
+
 # Secret store. This package NEVER installs or launches HashiCorp Vault (BSL:
 # packaging a product so Vault must be downloaded for it to operate is
 # "embedded" use). Two supported providers:
