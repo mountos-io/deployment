@@ -46,9 +46,13 @@ fi
 
 relay_upload() {
   local file="$1" key="$2"
-  aws s3api put-object --profile "$RELAY_PROFILE" --endpoint-url "$RELAY_ENDPOINT" \
+  # unset AWS_REGION for these calls: an inherited/exported AWS_REGION (e.g.
+  # us-west-2, set for the fleet's own aws ec2/ssm calls below) leaks into the
+  # SigV4 credential scope and Wasabi rejects the mismatched-region signature
+  # with a 400, even though --endpoint-url points at the right region already.
+  AWS_REGION= aws s3api put-object --profile "$RELAY_PROFILE" --endpoint-url "$RELAY_ENDPOINT" \
     --bucket "$RELAY_BUCKET" --key "$key" --body "$file" >/dev/null
-  aws s3 presign "s3://$RELAY_BUCKET/$key" --profile "$RELAY_PROFILE" \
+  AWS_REGION= aws s3 presign "s3://$RELAY_BUCKET/$key" --profile "$RELAY_PROFILE" \
     --endpoint-url "$RELAY_ENDPOINT" --expires-in 900
 }
 

@@ -47,6 +47,20 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_dataserv_shared" {
   description                  = "postgres from dataserv (shared single-RDS mode)"
 }
 
+# admin-client's optional native-login extension (MOUNTOS_PORTAL_DATABASE_URL) talks
+# to this SAME instance directly, a different database (mountos_portal) alongside
+# mountos_admin/mountos_data — same shared-instance shape as the dataserv rule above,
+# gated on admin_client_enabled since the SG only exists then.
+resource "aws_vpc_security_group_ingress_rule" "rds_from_admin_client" {
+  count                        = local.provision_rds && var.admin_client_enabled ? 1 : 0
+  security_group_id            = aws_security_group.rds[0].id
+  referenced_security_group_id = aws_security_group.admin_client[0].id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+  description                  = "postgres from admin-client (native-login portal DB)"
+}
+
 # Fresh per-apply-lifecycle suffix (not timestamp(), which would diff every
 # plan) so a final snapshot from a prior destroy doesn't collide with the
 # identifier a later destroy tries to reuse in the same account/region.
