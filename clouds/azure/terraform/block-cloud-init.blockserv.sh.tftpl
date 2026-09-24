@@ -52,6 +52,22 @@ else
   echo "WARN: tcp_bbr unavailable; TCP congestion control stays cubic" >&2
 fi
 sysctl --system >/dev/null || echo "WARN: sysctl --system reported errors; check $NET_CONF" >&2
+# default_qdisc covers only qdiscs made after the sysctl load. The default-route
+# interface got its qdisc at boot, before it, so replace it here. A multi-queue
+# NIC gets an explicit mq root, whose per-queue children the kernel makes from
+# default_qdisc (fq). A single-queue NIC gets fq as its root. On later boots
+# systemd-sysctl loads the file first.
+QDISC_IF=$(ip -o route show default | awk '{print $5; exit}')
+if [ -n "$QDISC_IF" ] && command -v tc >/dev/null 2>&1; then
+  if tc qdisc show dev "$QDISC_IF" | grep -q '^qdisc mq '; then
+    tc qdisc replace dev "$QDISC_IF" root handle 1: mq 2>/dev/null || true
+  else
+    tc qdisc replace dev "$QDISC_IF" root fq 2>/dev/null || true
+  fi
+  tc qdisc show dev "$QDISC_IF" | grep -qw fq || echo "WARN: fq is not the qdisc on $QDISC_IF" >&2
+else
+  echo "WARN: fq not applied (no default-route interface or no tc)" >&2
+fi
 
 # ADVERTISE_ADDR is deliberately NOT set: blockserv auto-detects via IMDS,
 # which yields BOTH the public IP (clients reach the byte plane directly) and
