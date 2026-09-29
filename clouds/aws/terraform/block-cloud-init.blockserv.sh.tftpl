@@ -180,6 +180,23 @@ bash /tmp/mos-install.sh --pkg mountos-blockserv
 install -m 0600 /dev/null /etc/mountos/blockserv.secret.env
 %{ endif ~}
 
+# Memory safety for every server unit: the OS must not OOM-kill it, and a swap file absorbs
+# memory pressure (min(RAM, 8 GiB)). Never set MemoryMax on these units, it kills instead of
+# swapping. vm.* keys live in their own file, 90-mountos-net.conf belongs to the UDP host tuning.
+if [ ! -e /swapfile ]; then
+  SIZE_MIB=$(awk '/MemTotal/ {m=int($2/1024); print (m>8192)?8192:m}' /proc/meminfo)
+  fallocate -l "$SIZE_MIB"M /swapfile || dd if=/dev/zero of=/swapfile bs=1M count="$SIZE_MIB"
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null
+  swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw,pri=10,nofail 0 0' >>/etc/fstab
+fi
+cat >/etc/sysctl.d/91-mountos-mem.conf <<'EOF'
+vm.swappiness = 10
+vm.overcommit_memory = 0
+EOF
+sysctl --system >/dev/null || echo "WARN: sysctl --system reported errors; check /etc/sysctl.d/91-mountos-mem.conf" >&2
+
 cat >/etc/systemd/system/blockserv.service <<EOF
 [Unit]
 Description=mountOS blockserv
@@ -195,6 +212,8 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "
 %{ endif ~}
 ExecStart=/usr/local/bin/blockserv
 Restart=always
+OOMScoreAdjust=-900
+MemorySwapMax=infinity
 RestartSec=10
 
 [Install]
