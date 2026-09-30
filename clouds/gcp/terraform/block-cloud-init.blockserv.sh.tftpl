@@ -2,7 +2,7 @@
 set -euo pipefail
 
 apt-get update -y
-apt-get install -y curl jq openssl xfsprogs
+apt-get install -y curl jq openssl xfsprogs ethtool
 
 # blockserv reads service config (mountos/blockserv) from the region secret
 # store at boot, same access path as dataserv. Only the bootstrap env below is local.

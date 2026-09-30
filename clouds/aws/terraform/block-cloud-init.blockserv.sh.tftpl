@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# ethtool reads the NIC counters (ENA allowance drops) when a transfer is diagnosed.
+# The blockserv binary does not call it.
+dnf install -y ethtool
+
 # blockserv reads service config from the region Vault (mountos/blockserv) at boot
 # via the SAME region AppRole as dataserv. Only the bootstrap env below is local.
 

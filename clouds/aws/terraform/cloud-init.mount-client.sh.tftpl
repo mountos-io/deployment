@@ -7,8 +7,9 @@ set -euo pipefail
 # instance metadata, or tfstate.
 
 # fuse3 is what the client mounts through; the rest is for inspecting a mount
-# by hand (ls/cat/dd live in coreutils, already present).
-dnf install -y fuse3 tar
+# by hand (ls/cat/dd live in coreutils, already present). ethtool reads the NIC
+# counters (ENA allowance drops) when a transfer is diagnosed.
+dnf install -y fuse3 tar ethtool
 
 # Host TCP tuning for a client far from the region: 64 MiB autotuning ceilings,
 # fq + bbr, PMTU probing, and no send-rate reset on idle pooled connections.
