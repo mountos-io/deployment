@@ -235,10 +235,11 @@ resource "aws_vpc_security_group_ingress_rule" "blockserv_peer_self" {
   ip_protocol                  = "tcp"
   description                  = "blockserv peer replication"
 }
-# UDP/FEC block transport (opt-in per process via _MOUNTOS_BLOCK_UDP_ENABLED_).
-# Mirrors the TCP pair above: client plane on 9102/udp is public like 9100/tcp,
-# peer plane on 9103/udp is self-referencing like 9101/tcp. Without these, UDP
-# datagrams are dropped and every call silently falls back to TCP.
+# UDP/FEC block transport. Blockserv always listens on both UDP ports. Clients
+# use TCP by default and UDP for far servers or when MOUNTOS_PREFER_UDP_OVER_TCP
+# is set. Mirrors the TCP pair above: client plane on 9102/udp is public like
+# 9100/tcp, peer plane on 9103/udp is self-referencing like 9101/tcp. Without
+# these, UDP datagrams are dropped and every call silently falls back to TCP.
 resource "aws_vpc_security_group_ingress_rule" "blockserv_client_udp" {
   security_group_id = aws_security_group.blockserv.id
   cidr_ipv4         = var.client_cidr
