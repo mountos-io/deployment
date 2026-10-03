@@ -102,6 +102,14 @@ vm.swappiness = 10
 vm.overcommit_memory = 0
 EOF
 sysctl --system >/dev/null || echo "WARN: sysctl --system reported errors; check /etc/sysctl.d/91-mountos-mem.conf" >&2
+# Kernel TLS module for the block data plane. The mountOS binaries never load
+# it; they probe it once at startup and stay on Noise when it is missing.
+modprobe tls 2>/dev/null || true
+if [ -d /sys/module/tls ]; then
+  echo tls >/etc/modules-load.d/tls.conf
+else
+  echo "WARN: kernel tls module unavailable; the block data plane stays on Noise" >&2
+fi
 
 cat >/etc/systemd/system/appserv.service <<EOF
 [Unit]
