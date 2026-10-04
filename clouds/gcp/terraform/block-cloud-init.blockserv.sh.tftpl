@@ -185,6 +185,8 @@ EnvironmentFile=-/etc/mountos/blockserv.secret.env
 ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} %{ if vault_ca_source == "secret" }${region_vault_ca_secret}%{ else }-%{ endif } ${region_secret_id_secret} /etc/mountos/blockserv.secret.env
 %{ endif ~}
 ExecStart=/usr/local/bin/blockserv
+# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+LimitNOFILE=1048576
 Restart=always
 RestartSec=10
 
@@ -194,3 +196,4 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now blockserv
+systemctl show blockserv -p LimitNOFILE

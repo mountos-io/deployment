@@ -115,6 +115,8 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${project_id} %{ if vault_
 # even the FIRST boot has a loser node that hits this immediately.
 ExecStartPre=-/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
+# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+LimitNOFILE=1048576
 Restart=always
 RestartSec=10
 
@@ -124,3 +126,4 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now appserv
+systemctl show appserv -p LimitNOFILE

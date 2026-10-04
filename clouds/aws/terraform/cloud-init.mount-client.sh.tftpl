@@ -127,6 +127,23 @@ fi
 # shell can read the mount; harmless on a disposable single-purpose tester.
 grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo user_allow_other >>/etc/fuse.conf
 
+# Open files limit for every login session and for systemd services. A parallel
+# fio run or a mount with many peer connections needs far more descriptors than
+# the default soft limit of 1024. limits.d covers PAM sessions (SSM shells
+# included) and the system.conf drop-in covers units. daemon-reexec makes
+# systemd read the drop-in without a reboot.
+cat >/etc/security/limits.d/90-mountos.conf <<'EOF'
+* soft nofile 1048576
+* hard nofile 1048576
+EOF
+install -d -m 0755 /etc/systemd/system.conf.d
+cat >/etc/systemd/system.conf.d/90-mountos.conf <<'EOF'
+[Manager]
+DefaultLimitNOFILE=1048576
+EOF
+systemctl daemon-reexec
+systemctl show -p DefaultLimitNOFILE
+
 # Breadcrumb so `ssm start-session` lands on something self-explanatory rather
 # than a bare prompt. This box is created and destroyed repeatedly, so the
 # next person (or the next session) should not have to reconstruct the usage.
