@@ -175,6 +175,10 @@ BLOCK_PORT=9100
 PORT_RANGE=9500-9600
 STORAGE_MOUNT_ROOT_PATH=$CACHE_DIR
 DELETE_MODE=${delete_mode}
+# CLOUD_PROVIDER makes blockserv probe only the AWS metadata service for its
+# addresses, with no probe of the other providers, and it stops when that probe
+# fails. It also lets blockserv read the instance type for the instance and NIC
+# tuning rules.
 CLOUD_PROVIDER=aws
 EOF
 chmod 0600 /etc/mountos/blockserv.env
