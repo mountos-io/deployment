@@ -127,11 +127,12 @@ fi
 # shell can read the mount; harmless on a disposable single-purpose tester.
 grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo user_allow_other >>/etc/fuse.conf
 
-# Open files limit for every login session and for systemd services. A parallel
-# fio run or a mount with many peer connections needs far more descriptors than
-# the default soft limit of 1024. limits.d covers PAM sessions (SSM shells
-# included) and the system.conf drop-in covers units. daemon-reexec makes
-# systemd read the drop-in without a reboot.
+# Open files limit for the test shells. A parallel fio run or a mount with many
+# peer connections needs far more descriptors than the default soft limit of
+# 1024. limits.d covers PAM sessions (ssh). SSM shells do not run PAM limits.
+# The SSM agent starts them, so they take the limit of the agent unit, and a
+# drop-in raises it. The profile script raises the soft limit of a login shell
+# to its hard limit. The system.conf drop-in sets the default for other units.
 # Units get the hard limit only. A program that uses select() fails with a
 # descriptor of 1024 or more, so the soft limit of a unit stays 1024. The mountOS
 # binaries raise their own soft limit to the hard limit at start up.
@@ -147,7 +148,21 @@ cat >/etc/systemd/system.conf.d/90-mountos.conf <<'EOF'
 [Manager]
 DefaultLimitNOFILE=1024:1048576
 EOF
+install -d -m 0755 /etc/systemd/system/amazon-ssm-agent.service.d
+cat >/etc/systemd/system/amazon-ssm-agent.service.d/90-mountos.conf <<'EOF'
+[Service]
+LimitNOFILE=1048576
+EOF
+cat >/etc/profile.d/90-mountos-limits.sh <<'EOF'
+ulimit -Sn "$(ulimit -Hn)" 2>/dev/null || true
+EOF
 systemctl daemon-reexec
+systemctl daemon-reload
+# A running unit keeps its limits until it restarts. No session exists at first
+# boot, so the restart of the agent ends none.
+if systemctl cat amazon-ssm-agent.service >/dev/null 2>&1; then
+  systemctl restart amazon-ssm-agent.service || true
+fi
 systemctl show -p DefaultLimitNOFILE
 
 # Breadcrumb so `ssm start-session` lands on something self-explanatory rather
