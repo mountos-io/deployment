@@ -156,7 +156,7 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "
 # block ExecStart on every restart after the first successful install.
 ExecStartPre=-/usr/local/bin/dataserv db install
 ExecStart=/usr/local/bin/dataserv
-# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+# Every client connection, raft peer connection and database connection uses a descriptor.
 LimitNOFILE=1048576
 Restart=always
 OOMScoreAdjust=-900
@@ -211,7 +211,7 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "
 # entries DO override earlier ones, which is the mechanism that works here.
 EnvironmentFile=/etc/mountos/gcserv.env
 ExecStart=/usr/local/bin/gcserv
-# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+# Every database connection, object store connection and temporary fork file uses a descriptor.
 LimitNOFILE=1048576
 Restart=always
 OOMScoreAdjust=-900

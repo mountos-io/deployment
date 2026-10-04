@@ -118,7 +118,7 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} %{ if vau
 # default, so even the FIRST boot has a loser node that hits this immediately.
 ExecStartPre=-/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
-# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+# Every HTTP client, node RPC connection and database connection uses a descriptor.
 LimitNOFILE=1048576
 Restart=always
 RestartSec=10

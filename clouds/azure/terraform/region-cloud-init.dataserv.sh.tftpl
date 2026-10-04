@@ -198,7 +198,7 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} %{ if vau
 # replacement hits the same already-installed schema.
 ExecStartPre=-/usr/local/bin/dataserv db install
 ExecStart=/usr/local/bin/dataserv
-# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+# Every client connection, raft peer connection and database connection uses a descriptor.
 LimitNOFILE=1048576
 Restart=always
 RestartSec=10
@@ -251,7 +251,7 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh ${key_vault_uri} %{ if vau
 # entries DO override earlier ones, which is the mechanism that works here.
 EnvironmentFile=/etc/mountos/gcserv.env
 ExecStart=/usr/local/bin/gcserv
-# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+# Every database connection, object store connection and temporary fork file uses a descriptor.
 LimitNOFILE=1048576
 Restart=always
 RestartSec=10

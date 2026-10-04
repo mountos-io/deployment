@@ -126,7 +126,7 @@ ExecStartPre=/usr/local/bin/mos-fetch-vault-config.sh %{ if vault_ca_source == "
 # Without '-', that blocks ExecStart on every restart and upgrade thereafter.
 ExecStartPre=-/usr/local/bin/appserv db install
 ExecStart=/usr/local/bin/appserv
-# Every client connection, peer connection, block file and gateway socket uses a descriptor.
+# Every HTTP client, node RPC connection and database connection uses a descriptor.
 LimitNOFILE=1048576
 Restart=always
 OOMScoreAdjust=-900
