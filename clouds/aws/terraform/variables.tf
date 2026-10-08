@@ -189,6 +189,18 @@ variable "appserv_direct_ip" {
   }
 }
 
+# ---------- cross-cloud blockserv members, optional ----------
+variable "external_block_cidrs" {
+  type        = list(string)
+  description = "Public /32 CIDRs of blockserv members that run outside this VPC (for example on Azure or GCP) and register with appserv over SRPC 9443. Empty (default): none."
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.external_block_cidrs : can(cidrnetmask(c)) && endswith(c, "/32")])
+    error_message = "external_block_cidrs entries must be IPv4 /32 CIDRs."
+  }
+}
+
 # ---------- admin dashboard (mountos-admin-client), optional ----------
 # Default false: no admin instance, no cost, nothing changes for existing deployments.
 variable "admin_client_enabled" {

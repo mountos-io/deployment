@@ -98,10 +98,10 @@ resource "aws_secretsmanager_secret" "admin_demo_password" {
 }
 
 resource "aws_secretsmanager_secret_version" "admin_demo_password" {
-  count                     = local.provision_rds && var.mode != "production" ? 1 : 0
-  secret_id                 = aws_secretsmanager_secret.admin_demo_password[0].id
-  secret_string_wo          = jsonencode({ password = ephemeral.random_password.admin_demo[0].result })
-  secret_string_wo_version  = var.admin_demo_password_version
+  count                    = local.provision_rds && var.mode != "production" ? 1 : 0
+  secret_id                = aws_secretsmanager_secret.admin_demo_password[0].id
+  secret_string_wo         = jsonencode({ password = ephemeral.random_password.admin_demo[0].result })
+  secret_string_wo_version = var.admin_demo_password_version
 }
 
 # Server-side TLS enforcement: bootstrap DSN construction already sets

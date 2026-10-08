@@ -115,6 +115,18 @@ resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_blockserv" {
   ip_protocol                  = "tcp"
   description                  = "SRPC registration from blockserv"
 }
+
+# A blockserv outside this VPC (for example on Azure or GCP) registers over the
+# public path, so each member's public address needs its own SRPC rule.
+resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_external_block" {
+  for_each          = toset(var.external_block_cidrs)
+  security_group_id = aws_security_group.appserv.id
+  cidr_ipv4         = each.value
+  from_port         = 9443
+  to_port           = 9443
+  ip_protocol       = "tcp"
+  description       = "SRPC registration from a cross-cloud blockserv"
+}
 # dedicated mode: one CIDR-based rule covers all region services (same
 # port), since SG references don't work across the peered VPC boundary.
 resource "aws_vpc_security_group_ingress_rule" "appserv_srpc_from_region_cidr" {
