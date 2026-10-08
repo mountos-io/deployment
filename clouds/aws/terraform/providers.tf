@@ -20,6 +20,12 @@ variable "region" {
   type        = string
   description = "AWS region."
   default     = "us-east-1"
+
+  # The value is interpolated into root shell scripts at first boot.
+  validation {
+    condition     = can(regex("^[a-z0-9-]{3,30}$", var.region))
+    error_message = "region must be 3 to 30 lower-case letters, digits or hyphens."
+  }
 }
 
 variable "deployment_id" {

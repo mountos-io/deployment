@@ -134,6 +134,12 @@ variable "mos_version" {
   type        = string
   description = "mountOS package version to install. Empty installs latest."
   default     = ""
+
+  # The value is pasted unquoted into root shell scripts at first boot.
+  validation {
+    condition     = var.mos_version == "" || can(regex("^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$", var.mos_version))
+    error_message = "mos_version must be empty or a package version made of letters, digits, dot, underscore, plus and hyphen."
+  }
 }
 
 variable "mos_installer_sha256" {
