@@ -192,3 +192,28 @@ variable "appserv_db_max_open_conns" {
   description = "DB_MAX_OPEN_CONNS for appserv against the admin DB. Empty = let the binary size its own pool (min(max(8*vCPU,50),200), x4 if distributed)."
   default     = ""
 }
+
+# ---------- admin dashboard (mountos-admin-client), optional ----------
+# Default false: no admin instance, no cost, nothing changes for existing deployments.
+variable "admin_client_enabled" {
+  type        = bool
+  description = "true: provision a small direct-IP instance running mountos-admin-client (own static external IP + Caddy for a real cert on admin_domain). false (default): not deployed."
+  default     = false
+}
+
+variable "admin_domain" {
+  type        = string
+  description = "Public FQDN for the admin dashboard (e.g. admin.acme.com). REQUIRED when admin_client_enabled = true. Separate domain from hub_domain, its own WebAuthn origin."
+  default     = ""
+
+  validation {
+    condition     = !var.admin_client_enabled || (length(var.admin_domain) > 0 && !can(regex("(^|\\.)(example|changeme|replace|your-domain)(\\.|$)", lower(var.admin_domain))))
+    error_message = "Set admin_domain to a real public FQDN when admin_client_enabled = true (placeholders like example/changeme/replace are rejected)."
+  }
+}
+
+variable "admin_client_machine_type" {
+  type        = string
+  description = "GCE machine type for the admin-client instance (Tau T2A, arm64, to match the module's machine image)."
+  default     = "t2a-standard-1"
+}

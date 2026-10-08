@@ -176,6 +176,31 @@ variable "resource_prefix" {
   }
 }
 
+# ---------- admin dashboard (mountos-admin-client), optional ----------
+# Default false: no admin VM, no cost, nothing changes for existing deployments.
+variable "admin_client_enabled" {
+  type        = bool
+  description = "true: provision a small direct-IP VM running mountos-admin-client (own static public IP + Caddy for a real cert on admin_domain). false (default): not deployed."
+  default     = false
+}
+
+variable "admin_domain" {
+  type        = string
+  description = "Public FQDN for the admin dashboard (e.g. admin.acme.com). REQUIRED when admin_client_enabled = true. Separate domain from hub_domain, its own WebAuthn origin."
+  default     = ""
+
+  validation {
+    condition     = !var.admin_client_enabled || (length(var.admin_domain) > 0 && !can(regex("(^|\\.)(example|changeme|replace|your-domain)(\\.|$)", lower(var.admin_domain))))
+    error_message = "Set admin_domain to a real public FQDN when admin_client_enabled = true (placeholders like example/changeme/replace are rejected)."
+  }
+}
+
+variable "admin_client_vm_size" {
+  type        = string
+  description = "Azure VM size for the admin-client VM (arm64, 4 GiB RAM)."
+  default     = "Standard_B2pts_v2"
+}
+
 locals {
   provision_pg  = var.admin_db_mode == "provision-pg"
   hub_hashicorp = var.vault_provider == "hashicorp"

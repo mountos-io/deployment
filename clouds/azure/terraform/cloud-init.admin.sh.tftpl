@@ -1,0 +1,148 @@
+#!/bin/bash
+set -euo pipefail
+
+# mountos-admin-client (var.admin_client_enabled). The source is public
+# (github.com/mountos-io/mountos-admin-client). This script clones it and
+# unpacks build.tar.gz, the production build the repo commits as one archive.
+# It does not build on the VM: the vite SSR bundling needs more memory than a
+# small VM has. The app runs under Node with tsx (one of the runtimes the repo
+# supports). Caddy fronts it with a real public certificate on admin_domain,
+# which is a different origin from hub_domain (see WEBAUTHN_* below).
+
+# ---------- Redis-compatible store (Ubuntu 22.04 has redis-server, no valkey) ----------
+# The default config listens on loopback only.
+apt-get update -y
+apt-get install -y redis-server git jq curl xz-utils ca-certificates
+systemctl enable --now redis-server
+
+# ---------- Node.js, latest LTS ----------
+# The version comes from the nodejs.org release index, newest first. jq picks
+# the first entry whose "lts" field is not false, so no version is pinned here.
+ARCH="$(uname -m)"
+case "$ARCH" in
+  aarch64) NODE_ARCH=arm64 ;;
+  x86_64)  NODE_ARCH=x64 ;;
+  *) echo "unsupported arch for Node: $ARCH" >&2; exit 1 ;;
+esac
+NODE_VERSION="$(curl -fsSL https://nodejs.org/dist/index.json | jq -r '[.[] | select(.lts != false)][0].version' | sed 's/^v//')"
+[ -n "$NODE_VERSION" ] || { echo "failed to resolve latest Node.js LTS version" >&2; exit 1; }
+curl -fsSL "https://nodejs.org/dist/v$${NODE_VERSION}/node-v$${NODE_VERSION}-linux-$${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz
+mkdir -p /opt/node
+tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1
+ln -sf /opt/node/bin/node /usr/local/bin/node
+ln -sf /opt/node/bin/npm /usr/local/bin/npm
+ln -sf /opt/node/bin/npx /usr/local/bin/npx
+
+# ---------- secret fetch: Key Vault REST API with the VM managed identity ----------
+# Runs as ExecStartPre. A non-zero exit makes systemd retry, so the VM can
+# boot before `make bootstrap` seeds the secret or before the role grant
+# propagates.
+cat >/usr/local/bin/mos-fetch-admin-client-secret.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
+VAULT_URI="$1"; SECRET_NAME="$2"; OUT_ENV="$3"
+TOKEN="$(curl -fsSL -H "Metadata: true" \
+  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net" \
+  2>/dev/null | jq -r '.access_token // empty' 2>/dev/null || true)"
+if [ -z "$TOKEN" ]; then
+  echo "waiting for a managed identity token" >&2; exit 1
+fi
+JSON="$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+  "$${VAULT_URI}secrets/$SECRET_NAME?api-version=7.4" \
+  2>/dev/null | jq -r '.value // empty' 2>/dev/null || true)"
+if [ -z "$JSON" ]; then
+  echo "waiting for secret $SECRET_NAME (run make bootstrap on the hub first)" >&2; exit 1
+fi
+umask 077
+jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$JSON" > "$OUT_ENV"
+EOF
+chmod 0755 /usr/local/bin/mos-fetch-admin-client-secret.sh
+
+# ---------- clone and unpack, no build ----------
+# --omit=dev skips vite, esbuild and svelte-kit. They only produce the
+# archive, and server.ts does not import them. npm ci installs the exact
+# lockfile versions.
+install -d -m 0755 /opt/mountos-admin-client
+git clone --depth 1 https://github.com/mountos-io/mountos-admin-client.git /opt/mountos-admin-client
+cd /opt/mountos-admin-client
+mkdir -p build
+tar -xzf build.tar.gz -C build
+npm ci --omit=dev
+
+# ---------- non-secret env (deployment-local, not in the vault) ----------
+install -d -m 0755 /etc/mountos
+cat >/etc/mountos/admin-client.env <<EOF
+NODE_ENV=production
+PORT=3001
+MOUNTOS_APPSERV_URL=https://${hub_domain}
+REDIS_URL=redis://127.0.0.1:6379
+WEBAUTHN_RP_ID=${admin_domain}
+WEBAUTHN_RP_NAME=mountOS Dashboard (demo)
+WEBAUTHN_ORIGIN=https://${admin_domain}
+EOF
+chmod 0600 /etc/mountos/admin-client.env
+
+cat >/etc/systemd/system/mountos-admin-client.service <<EOF
+[Unit]
+Description=mountos-admin-client
+After=network-online.target redis-server.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=/opt/mountos-admin-client
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/mountos/admin-client.env
+EnvironmentFile=/etc/mountos/admin-client.secret.env
+ExecStartPre=/usr/local/bin/mos-fetch-admin-client-secret.sh ${key_vault_uri} ${secret_name} /etc/mountos/admin-client.secret.env
+ExecStart=/usr/local/bin/npx tsx server/server.ts
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create the file first so the unit's EnvironmentFile always exists on first boot.
+install -m 0600 /dev/null /etc/mountos/admin-client.secret.env
+
+# --no-block: the start job fails while the secret is still missing. systemd
+# keeps retrying, and the rest of this script must still run.
+systemctl daemon-reload
+systemctl enable --now --no-block mountos-admin-client
+
+# ---------- Caddy: public TLS for admin_domain, plain HTTP proxy to :3001 ----------
+case "$ARCH" in
+  aarch64) CADDY_ARCH=arm64 ;;
+  x86_64)  CADDY_ARCH=amd64 ;;
+esac
+curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=$${CADDY_ARCH}" -o /usr/local/bin/caddy
+chmod 0755 /usr/local/bin/caddy
+
+install -d -m 0755 /etc/caddy
+cat >/etc/caddy/Caddyfile <<EOF
+${admin_domain} {
+	reverse_proxy 127.0.0.1:3001
+}
+EOF
+
+cat >/etc/systemd/system/caddy.service <<'EOF'
+[Unit]
+Description=Caddy (public TLS front for mountos-admin-client)
+After=network-online.target mountos-admin-client.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile
+Restart=always
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now caddy

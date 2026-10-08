@@ -23,3 +23,8 @@ output "admin_db_password_secret" {
 output "project_id" {
   value = var.project_id
 }
+
+# admin_client_enabled only. Point admin_domain's A record at this.
+output "admin_client_public_ip" {
+  value = var.admin_client_enabled ? google_compute_address.admin_client[0].address : null
+}

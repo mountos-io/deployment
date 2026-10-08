@@ -41,6 +41,14 @@ hub_certificate_secret_id = ""
 appserv_count   = 2
 appserv_vm_size = "Standard_D2ps_v5"
 
+# Optional admin dashboard (mountos-admin-client): one small VM with its own
+# static public IP and a Let's Encrypt certificate. Needs vault_provider =
+# azure. Point an A record for admin_domain at `terraform output
+# admin_client_public_ip` after apply.
+# admin_client_enabled = true
+# admin_domain         = "admin.acme.com" # separate from hub_domain
+# admin_client_vm_size = "Standard_B2pts_v2"
+
 # Admin DB (PostgreSQL dialect). RECOMMENDED: byo — bring a managed HA
 # PostgreSQL you already operate; this package then provisions no DB and never
 # holds your DSN (set ADMIN_DB_URL in answers.env for `make bootstrap`; it is

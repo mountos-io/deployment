@@ -6,6 +6,11 @@ output "lb_ip" {
   value = azurerm_public_ip.appgw.ip_address
 }
 
+# admin_client_enabled only. Point admin_domain's A record at this.
+output "admin_client_public_ip" {
+  value = var.admin_client_enabled ? azurerm_public_ip.admin_client[0].ip_address : null
+}
+
 # No vault_addr output: the azure provider needs none (Key Vault, managed
 # identities); the hashicorp provider's address is the operator-supplied
 # var.vault_addr.
