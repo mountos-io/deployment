@@ -1,0 +1,29 @@
+# Blockserv members on Azure for a hub that runs elsewhere. See main.tf for the
+# order of work. Copy to terraform.tfvars and edit.
+
+region          = "westus2"
+resource_prefix = "demo"          # must match the hub
+srpc_addr       = "hub.acme.com:9443"
+mos_version     = ""              # must match the hub release
+
+admin_ssh_public_key = "ssh-rsa AAAA... you@host" # RSA only, Azure rejects ed25519
+
+# Public /32 of each client that mounts a volume served by these members.
+client_cidrs = ["203.0.113.10/32"]
+
+# Hub appserv public addresses, only when the hub dials the members' SRPC range.
+# appserv_cidrs = ["198.51.100.7/32"]
+
+# First apply: leave empty. After copyset registration on the hub, list every
+# minted block volume UUID.
+block_members = []
+# block_members = [
+#   { block_volume_id = "01a119cd-0000-7000-8000-000000000001" },
+#   { block_volume_id = "01a119cd-0000-7000-8000-000000000002" },
+# ]
+
+# Cheap test sizing (x86). Production: Standard_D8ps_v5 with image_sku
+# "22_04-lts-arm64" and cache_gb = 500.
+vm_size   = "Standard_D2s_v5"
+image_sku = "22_04-lts-gen2"
+cache_gb  = 128
