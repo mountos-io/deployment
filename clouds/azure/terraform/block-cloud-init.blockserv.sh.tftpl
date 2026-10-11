@@ -8,13 +8,15 @@ apt-get install -y curl jq openssl xfsprogs ethtool
 # key) at boot, same store as dataserv. Only the bootstrap env below is local.
 
 # Throughput-oriented cache disk at /mnt/blockcache. Azure managed disks get a
-# predictable /dev/disk/azure/scsi1/lun<N> path based on the LUN, but the
+# predictable /dev/disk/azure/scsi1/lun<N> path based on the LUN (SCSI sizes),
+# or /dev/disk/azure/data/by-lun/<N> (NVMe sizes such as the v7 series). The
 # attachment (azurerm_virtual_machine_data_disk_attachment) is a separate
 # resource from VM creation with no ordering guarantee vs custom_data - wait
 # for it like AWS does, rather than failing hard on a same-apply race.
 CACHE_DEV=/dev/disk/azure/scsi1/lun0
 CACHE_DIR=/mnt/blockcache
 for _ in $(seq 1 60); do
+  [ -b /dev/disk/azure/data/by-lun/0 ] && CACHE_DEV=/dev/disk/azure/data/by-lun/0
   [ -b "$CACHE_DEV" ] && break
   sleep 2
 done
