@@ -323,7 +323,7 @@ resource "azurerm_storage_container" "blocks" {
 
 resource "azurerm_public_ip" "member" {
   for_each            = local.members
-  name                = "${var.name}-${substr(each.key, 0, 8)}"
+  name                = "${var.name}-${substr(each.key, 28, 8)}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   allocation_method   = "Static"
@@ -333,7 +333,7 @@ resource "azurerm_public_ip" "member" {
 
 resource "azurerm_managed_disk" "cache" {
   for_each             = local.members
-  name                 = "${var.name}-cache-${substr(each.key, 0, 8)}"
+  name                 = "${var.name}-cache-${substr(each.key, 28, 8)}"
   resource_group_name  = azurerm_resource_group.main.name
   location             = azurerm_resource_group.main.location
   storage_account_type = "Premium_LRS"
@@ -344,7 +344,7 @@ resource "azurerm_managed_disk" "cache" {
 
 resource "azurerm_network_interface" "member" {
   for_each            = local.members
-  name                = "${var.name}-${substr(each.key, 0, 8)}"
+  name                = "${var.name}-${substr(each.key, 28, 8)}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   tags                = var.tags
@@ -365,7 +365,7 @@ resource "azurerm_network_interface_security_group_association" "member" {
 
 resource "azurerm_linux_virtual_machine" "member" {
   for_each              = local.members
-  name                  = "${var.name}-${substr(each.key, 0, 8)}"
+  name                  = "${var.name}-${substr(each.key, 28, 8)}"
   resource_group_name   = azurerm_resource_group.main.name
   location              = azurerm_resource_group.main.location
   size                  = var.vm_size
