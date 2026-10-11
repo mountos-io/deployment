@@ -27,6 +27,16 @@ variable "mount_client_instance_type" {
   default     = "t4g.small"
 }
 
+variable "mount_client_count" {
+  type        = number
+  description = "Number of mount-test clients to launch when mount_client_enabled is true. Several clients are needed to test multi-mount behavior such as standby failover."
+  default     = 1
+  validation {
+    condition     = var.mount_client_count >= 1 && var.mount_client_count <= 5
+    error_message = "mount_client_count must be between 1 and 5."
+  }
+}
+
 data "aws_vpc" "default" {
   count   = var.mount_client_enabled ? 1 : 0
   default = true
@@ -115,10 +125,10 @@ resource "aws_iam_instance_profile" "mount_client" {
 }
 
 resource "aws_instance" "mount_client" {
-  count                       = var.mount_client_enabled ? 1 : 0
+  count                       = var.mount_client_enabled ? var.mount_client_count : 0
   ami                         = local.ami
   instance_type               = var.mount_client_instance_type
-  subnet_id                   = data.aws_subnets.default[0].ids[0]
+  subnet_id                   = data.aws_subnets.default[0].ids[count.index % length(data.aws_subnets.default[0].ids)]
   iam_instance_profile        = aws_iam_instance_profile.mount_client[0].name
   vpc_security_group_ids      = [aws_security_group.mount_client[0].id]
   associate_public_ip_address = true
@@ -142,15 +152,20 @@ resource "aws_instance" "mount_client" {
     mos_installer_sha256 = var.mos_installer_sha256
   }))
 
-  tags = { Name = "${local.name_root}-mount-client" }
+  tags = { Name = var.mount_client_count > 1 ? "${local.name_root}-mount-client-${count.index + 1}" : "${local.name_root}-mount-client" }
 }
 
 output "mount_client_instance_id" {
-  description = "Instance ID of the mount-test client (SSM target); null when disabled."
+  description = "Instance ID of the first mount-test client (SSM target); null when disabled."
   value       = var.mount_client_enabled ? aws_instance.mount_client[0].id : null
 }
 
+output "mount_client_instance_ids" {
+  description = "Instance IDs of all mount-test clients (SSM targets); empty when disabled."
+  value       = aws_instance.mount_client[*].id
+}
+
 output "mount_client_public_ip" {
-  description = "Public IP of the mount-test client; null when disabled."
+  description = "Public IP of the first mount-test client; null when disabled."
   value       = var.mount_client_enabled ? aws_instance.mount_client[0].public_ip : null
 }

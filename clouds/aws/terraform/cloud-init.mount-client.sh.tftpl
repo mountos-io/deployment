@@ -9,7 +9,7 @@ set -euo pipefail
 # fuse3 is what the client mounts through; the rest is for inspecting a mount
 # by hand (ls/cat/dd live in coreutils, already present). ethtool reads the NIC
 # counters (ENA allowance drops) when a transfer is diagnosed.
-dnf install -y fuse3 tar ethtool
+dnf install -y fuse3 tar ethtool fio sqlite jq python3
 
 # Host TCP tuning for a client far from the region: 64 MiB autotuning ceilings,
 # fq + bbr, PMTU probing, and no send-rate reset on idle pooled connections.
