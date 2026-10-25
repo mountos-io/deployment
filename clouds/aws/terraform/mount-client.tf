@@ -27,6 +27,12 @@ variable "mount_client_instance_type" {
   default     = "t4g.small"
 }
 
+variable "mount_client_pfkit" {
+  type        = bool
+  description = "Start pfkit on the mount client. pfkit sends the paths that processes open to the mounts of the host as prefetch hints. False installs the client with --no-pfkit, which needs an installer script that knows that flag."
+  default     = true
+}
+
 variable "mount_client_count" {
   type        = number
   description = "Number of mount-test clients to launch when mount_client_enabled is true. Several clients are needed to test multi-mount behavior such as standby failover."
@@ -150,6 +156,7 @@ resource "aws_instance" "mount_client" {
   user_data = base64encode(templatefile("${path.module}/cloud-init.mount-client.sh.tftpl", {
     mos_version          = var.mos_version
     mos_installer_sha256 = var.mos_installer_sha256
+    pfkit_enabled        = var.mount_client_pfkit
   }))
 
   tags = { Name = var.mount_client_count > 1 ? "${local.name_root}-mount-client-${count.index + 1}" : "${local.name_root}-mount-client" }

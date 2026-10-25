@@ -65,9 +65,33 @@ fi
 curl -fsSL https://mountos.sh/install -o /tmp/mos-install.sh
 if [ -n "${mos_installer_sha256}" ]; then echo "${mos_installer_sha256}  /tmp/mos-install.sh" | sha256sum -c - || { echo "installer checksum mismatch"; exit 1; }; else echo "WARN: mos_installer_sha256 unset; installing without verification"; fi
 %{ if mos_version != "" ~}
-bash /tmp/mos-install.sh --pkg mountos-cli-linux --version ${mos_version}
+bash /tmp/mos-install.sh --pkg mountos-cli-linux --version ${mos_version}%{ if !pfkit_enabled } --no-pfkit%{ endif }
 %{ else ~}
-bash /tmp/mos-install.sh --pkg mountos-cli-linux
+bash /tmp/mos-install.sh --pkg mountos-cli-linux%{ if !pfkit_enabled } --no-pfkit%{ endif }
+%{ endif ~}
+
+%{ if pfkit_enabled ~}
+# The client install also installs pfkit, which does not start by itself. It needs kernel
+# BTF. Without BTF the installer skips it, and a mount works without it.
+if [ -x /usr/local/bin/pfkit ] && [ -r /sys/kernel/btf/vmlinux ]; then
+  cat >/etc/systemd/system/pfkit.service <<'EOF'
+[Unit]
+Description=pfkit prefetch hints for mountOS mounts
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/pfkit --agent=false
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now pfkit.service || echo "WARN: pfkit did not start; mounts work without it" >&2
+else
+  echo "WARN: pfkit not started (binary missing or kernel has no BTF); mounts work without it" >&2
+fi
 %{ endif ~}
 
 # Mount point the operator's mount command targets by default.
