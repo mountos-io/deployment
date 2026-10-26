@@ -14,8 +14,9 @@ ifeq ($(CLOUD),)
 CLOUD := aws
 endif
 TF    := $(HERE)clouds/$(CLOUD)/terraform
+GOBIN_DIR ?= $(HOME)/go/bin
 
-.PHONY: help interview validate plan apply bootstrap verify upgrade region-bootstrap block-roll
+.PHONY: help interview validate plan apply bootstrap verify upgrade region-bootstrap block-roll vuln
 
 help:
 	@echo "mountOS init-hub (production):"
@@ -28,6 +29,7 @@ help:
 	@echo "  upgrade    set MOS_VERSION in answers.env, then 'make apply' to roll the ASG (no data touched)"
 	@echo "  region-bootstrap  seed the region secret store (dataserv/gcserv/blockserv keys, unconditional) + fan out hub<->region verifiers"
 	@echo "  block-roll  roll blockserv members ONE AT A TIME so the active-active mesh keeps serving (plain apply replaces them all together)"
+	@echo "  vuln       govulncheck over the Go modules (bootstrap/keygen, verify)"
 	@echo ""
 	@echo "  CLOUD=$(CLOUD) (default aws). Substrate: clouds/$(CLOUD)/terraform"
 	@echo "  NO destroy target by design."
@@ -69,3 +71,8 @@ upgrade:
 # this on its own.
 block-roll:
 	@CLOUD="$(CLOUD)" "$(HERE)block-roll.sh"
+
+vuln: ## Fail on known vulnerabilities in the Go modules (govulncheck)
+	@PATH="$(GOBIN_DIR):$$PATH" govulncheck -version >/dev/null 2>&1 || { echo "vuln: govulncheck not found in $(GOBIN_DIR) (install: go install golang.org/x/vuln/cmd/govulncheck@latest)"; exit 1; }
+	cd $(HERE)bootstrap/keygen && PATH="$(GOBIN_DIR):$$PATH" govulncheck ./...
+	cd $(HERE)verify && PATH="$(GOBIN_DIR):$$PATH" govulncheck ./...
